@@ -342,7 +342,7 @@ public partial class MainWindow : Window
                 JumpListCategoryKind.Tasks => loc.Text("jumpList.tasks"),
                 _ => category.Title
             };
-            entries.Add(new MenuItem { Header = title, IsEnabled = false, FontSize = 12 });
+            entries.Add(new MenuItem { Header = title, IsEnabled = false, FontSize = 11 });
 
             foreach (var entry in category.Entries)
             {
@@ -386,16 +386,16 @@ public partial class MainWindow : Window
         // Long destination names are cut with an ellipsis, as on the taskbar.
         var entry = new MenuItem
         {
-            Header = new TextBlock { Text = header, MaxWidth = 280, TextTrimming = TextTrimming.CharacterEllipsis }
+            Header = new TextBlock { Text = header, MaxWidth = 240, TextTrimming = TextTrimming.CharacterEllipsis }
         };
         if (icon != null)
-            entry.Icon = new Image { Source = icon, Width = 16, Height = 16 };
+            entry.Icon = new Image { Source = icon, Width = 14, Height = 14 };
         else if (glyph != null)
             entry.Icon = new TextBlock
             {
                 Text = glyph,
                 FontFamily = GlyphFont,
-                FontSize = 14,
+                FontSize = 12,
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
             };
@@ -403,6 +403,48 @@ public partial class MainWindow : Window
         // which removes the button the menu is still anchored to.
         entry.Click += (_, _) => Dispatcher.UIThread.Post(action);
         return entry;
+    }
+
+    /// <summary>
+    /// Paints the context menu like the dock bar — its color, transparency and
+    /// corner rounding — in a compact size. Text is light on dark dock colors
+    /// and dark on light ones. The Fluent theme's menu brushes and paddings are
+    /// overridden as resources scoped to this menu only.
+    /// </summary>
+    private void ApplyDockStyle(ContextMenu menu)
+    {
+        if (_appServices == null) return;
+        var appearance = _appServices.AppearanceService;
+
+        var parts = appearance.GetDockColorRGB()
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        byte Channel(int i) => parts.Length > i && byte.TryParse(parts[i], out var v) ? v : (byte)0;
+        byte r = Channel(0), g = Channel(1), b = Channel(2);
+        byte alpha = (byte)Math.Clamp(appearance.GetDockTransparencyPercentage() / 100.0 * 255, 0, 255);
+
+        bool darkDock = (0.299 * r + 0.587 * g + 0.114 * b) < 140;
+        Color text = darkDock ? Colors.White : Color.FromRgb(0x1A, 0x1A, 0x1A);
+        Color Tint(byte a) => Color.FromArgb(a, text.R, text.G, text.B);
+
+        menu.Background = new SolidColorBrush(Color.FromArgb(alpha, r, g, b));
+        menu.BorderBrush = new SolidColorBrush(Tint(0x30));
+        menu.BorderThickness = new Thickness(1);
+        menu.CornerRadius = new CornerRadius(Math.Min(appearance.GetDockBorderRounding(), 14));
+        menu.Padding = new Thickness(3);
+        menu.FontSize = 12;
+
+        var resources = menu.Resources;
+        resources["MenuFlyoutItemForeground"] = new SolidColorBrush(text);
+        resources["MenuFlyoutItemForegroundPointerOver"] = new SolidColorBrush(text);
+        resources["MenuFlyoutItemForegroundPressed"] = new SolidColorBrush(text);
+        resources["MenuFlyoutItemForegroundDisabled"] = new SolidColorBrush(Tint(0x99));
+        resources["MenuFlyoutItemBackgroundPointerOver"] = new SolidColorBrush(Tint(0x26));
+        resources["MenuFlyoutItemBackgroundPressed"] = new SolidColorBrush(Tint(0x18));
+        resources["MenuFlyoutItemBackgroundDisabled"] = Brushes.Transparent;
+        resources["SystemControlForegroundBaseMediumLowBrush"] = new SolidColorBrush(Tint(0x33));
+        resources["MenuFlyoutItemThemePaddingNarrow"] = new Thickness(8, 4, 10, 5);
+        resources["MenuFlyoutSeparatorThemePadding"] = new Thickness(-3, 2, -3, 2);
+        resources["MenuIconPresenterMargin"] = new Thickness(0, 0, 10, 0);
     }
 
     private void ShowContextMenu(Control anchor, List<Control> entries)
@@ -421,6 +463,7 @@ public partial class MainWindow : Window
             Placement = vertical ? PlacementMode.Right : PlacementMode.Top,
             ItemsSource = entries
         };
+        ApplyDockStyle(menu);
         menu.Closed += (_, _) =>
         {
             if (_openContextMenu != menu) return;
