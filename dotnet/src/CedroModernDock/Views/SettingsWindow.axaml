@@ -229,6 +229,11 @@
                             <Slider Minimum="0" Maximum="100" Value="{Binding Transparency}" Margin="0,8,0,0"/>
                         </StackPanel>
                         <StackPanel Orientation="Vertical" Spacing="4">
+                            <TextBlock Text="{Binding MenuAcrylicTitle}" FontWeight="SemiBold" Foreground="#CCCCCC"/>
+                            <TextBlock Text="{Binding MenuAcrylicHelper}" FontSize="11" Foreground="#888888" TextWrapping="Wrap"/>
+                            <Slider Minimum="0" Maximum="100" Value="{Binding MenuAcrylicIntensity}" Margin="0,8,0,0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Vertical" Spacing="4">
                             <TextBlock Text="{Binding RoundingTitle}" FontWeight="SemiBold" Foreground="#CCCCCC"/>
                             <TextBlock Text="{Binding RoundingHelper}" FontSize="11" Foreground="#888888" TextWrapping="Wrap"/>
                             <Slider Minimum="0" Maximum="30" Value="{Binding BorderRounding}" Margin="0,8,0,0"/>
@@ -275,6 +280,12 @@
                         <StackPanel Orientation="Horizontal" Spacing="16">
                             <RadioButton Content="{Binding StaticText}" IsChecked="{Binding IsStaticMode}" Foreground="White"/>
                             <RadioButton Content="{Binding DynamicText}" IsChecked="{Binding !IsStaticMode}" Foreground="White"/>
+                        </StackPanel>
+
+                        <!-- Both modes: keep maximized windows off the dock -->
+                        <StackPanel Orientation="Vertical" Spacing="4" Margin="0,8,0,0">
+                            <CheckBox Content="{Binding ReserveSpaceText}" IsChecked="{Binding ReserveScreenSpace}" Foreground="#CCCCCC"/>
+                            <TextBlock Text="{Binding ReserveSpaceHelper}" FontSize="11" Foreground="#888888" TextWrapping="Wrap"/>
                         </StackPanel>
 
                         <!-- Static-only: alignment + screen spacing -->

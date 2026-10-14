@@ -84,6 +84,14 @@ public partial class SettingsViewModel : ViewModelBase
     public int IconSize { get => _iconSize; set => SetProperty(ref _iconSize, value); }
     public int IconSpacing { get => _iconSpacing; set => SetProperty(ref _iconSpacing, value); }
     public int Transparency { get => _transparency; set => SetProperty(ref _transparency, value); }
+
+    private int _menuAcrylicIntensity = 40;
+    /// <summary>Opacity of the dock-colored tint over the context menu's acrylic blur.</summary>
+    public int MenuAcrylicIntensity { get => _menuAcrylicIntensity; set => SetProperty(ref _menuAcrylicIntensity, value); }
+
+    private bool _reserveScreenSpace = true;
+    /// <summary>Reserve the dock's screen strip so maximized windows stop above it.</summary>
+    public bool ReserveScreenSpace { get => _reserveScreenSpace; set => SetProperty(ref _reserveScreenSpace, value); }
     public int BorderRounding { get => _borderRounding; set => SetProperty(ref _borderRounding, value); }
 
     /// <summary>Quick-pick preset colors for the dock background.</summary>
@@ -185,6 +193,10 @@ public partial class SettingsViewModel : ViewModelBase
     public string TintColorHelper => T("settings.iconsCustomization.tint.helper");
     public string TransparencyTitle => T("settings.dockCustomization.transparency.title");
     public string TransparencyHelper => T("settings.dockCustomization.transparency.helper");
+    public string MenuAcrylicTitle => T("settings.dockCustomization.menuAcrylic.title");
+    public string MenuAcrylicHelper => T("settings.dockCustomization.menuAcrylic.helper");
+    public string ReserveSpaceText => T("settings.positioning.reserveSpace");
+    public string ReserveSpaceHelper => T("settings.positioning.reserveSpace.helper");
     public string RoundingTitle => T("settings.dockCustomization.rounding.title");
     public string RoundingHelper => T("settings.dockCustomization.rounding.helper");
     public string BgColorTitle => T("settings.dockCustomization.background.title");
@@ -252,6 +264,7 @@ public partial class SettingsViewModel : ViewModelBase
         IconSize = app.GetIconsSize();
         IconSpacing = app.GetSpacingBetweenIcons();
         Transparency = app.GetDockTransparencyPercentage();
+        MenuAcrylicIntensity = app.GetMenuAcrylicIntensity();
         BorderRounding = app.GetDockBorderRounding();
         DockColor = ParseRgbColor(app.GetDockColorRGB());
         TintIcons = app.GetTintIcons();
@@ -265,6 +278,7 @@ public partial class SettingsViewModel : ViewModelBase
         LeftSpacing = pos.GetLeftSpacing();
         RightSpacing = pos.GetRightSpacing();
         BottomSpacing = pos.GetBottomSpacing();
+        ReserveScreenSpace = pos.GetReserveScreenSpace();
 
         RefreshItemLabels();
         SelectedLanguage = _appServices.LocalizationService.GetCurrentLanguage();
@@ -285,6 +299,8 @@ public partial class SettingsViewModel : ViewModelBase
             case nameof(IconSize): OnIconSizeChanged(); break;
             case nameof(IconSpacing): OnIconSpacingChanged(); break;
             case nameof(Transparency): OnTransparencyChanged(); break;
+            case nameof(MenuAcrylicIntensity): _appServices.AppearanceService.SetMenuAcrylicIntensity(MenuAcrylicIntensity); break;
+            case nameof(ReserveScreenSpace): _appServices.PositioningService.SetReserveScreenSpace(ReserveScreenSpace); _dockRefreshAction(); break;
             case nameof(BorderRounding): OnBorderRoundingChanged(); break;
             case nameof(DockColor): OnDockColorChanged(); OnPropertyChanged(nameof(DockColorBrush)); break;
             case nameof(TintIcons): OnTintIconsChanged(); break;

@@ -84,6 +84,14 @@ public class DockAppearanceService
         _dockService.SaveChanges();
     }
 
+    public int GetMenuAcrylicIntensity() => Math.Clamp(GetDock().MenuAcrylicIntensity, 0, 100);
+
+    public void SetMenuAcrylicIntensity(int value)
+    {
+        GetDock().MenuAcrylicIntensity = Math.Clamp(value, 0, 100);
+        _dockService.SaveChanges();
+    }
+
     public string GetTintColorRGB() => GetDock().TintColorRGB;
 
     public void SetTintColorRGB(string value)

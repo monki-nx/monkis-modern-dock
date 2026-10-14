@@ -20,6 +20,7 @@ namespace CedroModernDock.Views;
 public partial class MainWindow : Window
 {
     private DockWindowBehavior? _dockBehavior;
+    private DockAppBar? _appBar;
     private AppServices? _appServices;
     private WindowPreviewPopup? _previewPopup;
     private ContextMenu? _openContextMenu;
@@ -96,6 +97,12 @@ public partial class MainWindow : Window
 
         _dockBehavior = new DockWindowBehavior(handle.Handle, UpdateStatus);
         _dockBehavior.Apply();
+        _appBar = new DockAppBar(handle.Handle, _dockBehavior.AppBarCallbackMessage);
+        _dockBehavior.AppBarNotification = code =>
+        {
+            if (code == DockAppBar.ABN_POSCHANGED)
+                UpdateAppBar(force: true);
+        };
 
         // Initialize the dock ViewModel (loads items, starts indicator watcher).
         if (DataContext is MainWindowViewModel vm)
@@ -110,12 +117,30 @@ public partial class MainWindow : Window
 
         // Static anchors must use the finalized window size, which SizeToContent
         // only produces after the first layout pass. Re-apply once layout settles
-        // and whenever the dock content resizes the window.
-        if (_appServices?.PositioningService.IsDynamicPositioning() == false)
+        // and whenever the dock content resizes the window. Subscribed in both
+        // modes: switching to STATIC from settings must re-anchor on resizes
+        // too, and the reserved screen strip follows the dock's size.
+        SizeChanged += OnDockSizeChanged;
+        Dispatcher.UIThread.Post(() => ApplyDockPosition(), DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Reserves the screen strip under the dock (appbar) when enabled and the
+    /// dock is horizontal, so maximized windows stop above it; releases it
+    /// otherwise. Positions and sizes are read from the native window.
+    /// </summary>
+    private void UpdateAppBar(bool force = false)
+    {
+        if (_appBar == null || _appServices == null) return;
+        bool reserve = _appServices.PositioningService.GetReserveScreenSpace()
+            && !_appServices.AppearanceService.GetVerticalDock();
+        IntPtr hwnd = this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (!reserve || hwnd == IntPtr.Zero || !User32.GetWindowRect(hwnd, out RECT rect))
         {
-            SizeChanged += OnDockSizeChanged;
-            Dispatcher.UIThread.Post(() => ApplyDockPosition(), DispatcherPriority.Loaded);
+            _appBar.Remove();
+            return;
         }
+        _appBar.ReserveBottom(rect, force);
     }
 
     /// <summary>
@@ -127,22 +152,21 @@ public partial class MainWindow : Window
     private void ApplyDockPosition(bool force = false)
     {
         if (_appServices == null) return;
-        if (!force && _appServices.PositioningService.IsDynamicPositioning()) return;
-        var (x, y) = _appServices.PositioningService.ResolvePosition(Width, Height);
-        // The dock is parented to the desktop window, so a position set on it
-        // is relative to that parent, whose origin is the virtual screen's
-        // top-left (negative with a monitor above or left of the primary one),
-        // while Position reads back in screen coordinates. Without this offset
-        // the saved position drifts by that origin on every start.
-        var (originX, originY) = _dockBehavior?.GetParentOrigin() ?? (0, 0);
-        Position = new PixelPoint((int)x - originX, (int)y - originY);
+        if (force || !_appServices.PositioningService.IsDynamicPositioning())
+        {
+            var (x, y) = _appServices.PositioningService.ResolvePosition(Width, Height);
+            // The dock is parented to the desktop window, so a position set on it
+            // is relative to that parent, whose origin is the virtual screen's
+            // top-left (negative with a monitor above or left of the primary one),
+            // while Position reads back in screen coordinates. Without this offset
+            // the saved position drifts by that origin on every start.
+            var (originX, originY) = _dockBehavior?.GetParentOrigin() ?? (0, 0);
+            Position = new PixelPoint((int)x - originX, (int)y - originY);
+        }
+        UpdateAppBar();
     }
 
-    private void OnDockSizeChanged(object? sender, SizeChangedEventArgs e)
-    {
-        if (_appServices?.PositioningService.IsDynamicPositioning() == false)
-            ApplyDockPosition();
-    }
+    private void OnDockSizeChanged(object? sender, SizeChangedEventArgs e) => ApplyDockPosition();
 
     private void OnItemPointerEntered(object? sender, PointerEventArgs e)
     {
@@ -429,9 +453,16 @@ public partial class MainWindow : Window
         menu.Background = new SolidColorBrush(Color.FromArgb(alpha, r, g, b));
         menu.BorderBrush = new SolidColorBrush(Tint(0x30));
         menu.BorderThickness = new Thickness(1);
-        menu.CornerRadius = new CornerRadius(Math.Min(appearance.GetDockBorderRounding(), 14));
+        // Windows 11 menu corners: the acrylic backdrop fills the popup's
+        // rectangle and DWM rounds it to this radius (see ShowContextMenu).
+        menu.CornerRadius = new CornerRadius(MenuCornerRadius);
         menu.Padding = new Thickness(3);
         menu.FontSize = 12;
+        // Subpixel (ClearType) text blends glyph edges with what the window
+        // itself draws behind them; over the transparent acrylic background
+        // that leaves a dark fringe around the letters, most visible over
+        // light content. Grayscale antialiasing keeps the text clean.
+        RenderOptions.SetTextRenderingMode(menu, TextRenderingMode.Antialias);
 
         var resources = menu.Resources;
         resources["MenuFlyoutItemForeground"] = new SolidColorBrush(text);
@@ -446,6 +477,10 @@ public partial class MainWindow : Window
         resources["MenuFlyoutSeparatorThemePadding"] = new Thickness(-3, 2, -3, 2);
         resources["MenuIconPresenterMargin"] = new Thickness(0, 0, 10, 0);
     }
+
+    private const int DwmWindowCornerPreference = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
+    private const int DwmCornerRound = 2;             // DWMWCP_ROUND (8 px, Windows 11)
+    private const double MenuCornerRadius = 8;
 
     private void ShowContextMenu(Control anchor, List<Control> entries)
     {
@@ -477,10 +512,28 @@ public partial class MainWindow : Window
         // The dock lives in the desktop layer, and so would its popups: a
         // window covering the area above the dock would hide the menu. Keep
         // it topmost, like the taskbar menu.
-        _contextMenuHwnd = TopLevel.GetTopLevel(menu)?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        var popupRoot = TopLevel.GetTopLevel(menu);
+        _contextMenuHwnd = popupRoot?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
         if (_contextMenuHwnd != IntPtr.Zero)
             User32.SetWindowPos(_contextMenuHwnd, Win32Constants.HWND_TOPMOST, 0, 0, 0, 0,
                 Win32Constants.SWP_NOMOVE | Win32Constants.SWP_NOSIZE | Win32Constants.SWP_NOACTIVATE);
+
+        // Windows 11 acrylic: the system blurs what is behind the menu and
+        // tints it with the dock's color and transparency; the menu's own
+        // background then steps aside so the tint is not applied twice. When
+        // the system refuses acrylic the dock-colored background stays. DWM
+        // rounds the popup window so the blur follows the menu's corners.
+        if (_contextMenuHwnd != IntPtr.Zero)
+        {
+            DwmThumbnailInterop.SetWindowAttribute(_contextMenuHwnd, DwmWindowCornerPreference, DwmCornerRound);
+            // The tint's opacity is the "menu acrylic intensity" setting: lower
+            // values let more of the blurred background show through.
+            byte intensity = (byte)Math.Round(
+                (_appServices?.AppearanceService.GetMenuAcrylicIntensity() ?? 40) / 100.0 * 255);
+            if (menu.Background is ISolidColorBrush { Color: var tint }
+                && AcrylicBackdrop.Enable(_contextMenuHwnd, intensity, tint.R, tint.G, tint.B))
+                menu.Background = Brushes.Transparent;
+        }
 
         _contextMenuForeground = User32.GetForegroundWindow();
         _contextMenuWatch.Start();
@@ -716,6 +769,7 @@ public partial class MainWindow : Window
         if (_appServices == null) return;
         if (!_appServices.PositioningService.IsDynamicPositioning()) return;
         _appServices.DockService.SetDockPosition(Position.X, Position.Y);
+        UpdateAppBar();
     }
 
     private void UpdateStatus(string status)
@@ -741,7 +795,9 @@ public partial class MainWindow : Window
     {
         if (_appServices == null) return;
         var currentMode = _appServices.PositioningService.GetPositioningMode();
-        if (currentMode == DockPositioningMode.STATIC && mode == DockPositioningMode.DYNAMIC)
+        // Keep the current spot: DYNAMIC starts from it, and STATIC anchors to
+        // the screen containing it instead of jumping to the primary screen.
+        if (currentMode != mode)
         {
             _appServices.DockService.SetDockPosition(Position.X, Position.Y);
         }
@@ -757,6 +813,9 @@ public partial class MainWindow : Window
         HidePreview();
         if (DataContext is MainWindowViewModel vm)
             vm.Shutdown();
+        // Give the reserved screen strip back before the window goes away.
+        _appBar?.Dispose();
+        _appBar = null;
         _dockBehavior?.Dispose();
         _dockBehavior = null;
         base.OnClosed(e);

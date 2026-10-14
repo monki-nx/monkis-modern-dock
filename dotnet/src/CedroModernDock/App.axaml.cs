@@ -135,7 +135,9 @@ public partial class App : Application
     {
         if (_appServices == null || _mainWindow == null) return;
         var currentMode = _appServices.PositioningService.GetPositioningMode();
-        if (currentMode == DockPositioningMode.STATIC && mode == DockPositioningMode.DYNAMIC)
+        // Keep the current spot: DYNAMIC starts from it, and STATIC anchors to
+        // the screen containing it instead of jumping to the primary screen.
+        if (currentMode != mode)
         {
             _appServices.DockService.SetDockPosition(_mainWindow.Position.X, _mainWindow.Position.Y);
         }

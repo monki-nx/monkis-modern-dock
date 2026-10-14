@@ -23,6 +23,12 @@ public sealed class DockWindowBehavior : IDisposable
     private SubclassProc? _subclassProc; // kept alive to prevent GC of the native callback
     private bool _subclassed;
 
+    /// <summary>Window message the shell uses for this dock's appbar notifications.</summary>
+    public uint AppBarCallbackMessage { get; } = User32.RegisterWindowMessage("CedroModernDock.AppBar");
+
+    /// <summary>Raised with the notification code (wParam) of each appbar notification.</summary>
+    public Action<int>? AppBarNotification { get; set; }
+
     public DockWindowBehavior(IntPtr hwnd, Action<string>? onStatus = null)
     {
         _hwnd = hwnd;
@@ -134,6 +140,12 @@ public sealed class DockWindowBehavior : IDisposable
         IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
         UIntPtr uIdSubclass, IntPtr dwRefData)
     {
+        if (uMsg == AppBarCallbackMessage && AppBarCallbackMessage != 0)
+        {
+            AppBarNotification?.Invoke(wParam.ToInt32());
+            return IntPtr.Zero;
+        }
+
         // 1. Block explicit minimize (SC_MINIMIZE) — covers normal "Minimize"
         //    clicks and Win+D "Show Desktop" (which sends SC_MINIMIZE).
         if (uMsg == Win32Constants.WM_SYSCOMMAND)

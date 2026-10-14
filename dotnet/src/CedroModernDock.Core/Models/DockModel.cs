@@ -89,6 +89,20 @@ public class DockModel
     [JsonPropertyName("tintColorRGB")]
     public string TintColorRGB { get; set; } = "0, 80, 140";
 
+    /// <summary>
+    /// Opacity (0-100) of the dock-colored tint laid over the context menu's
+    /// acrylic blur: lower values let more of the blurred background show.
+    /// </summary>
+    [JsonPropertyName("menuAcrylicIntensity")]
+    public int MenuAcrylicIntensity { get; set; } = 40;
+
+    /// <summary>
+    /// Reserve the screen strip the dock sits on (like the taskbar), so
+    /// maximized windows stop above the dock instead of covering it.
+    /// </summary>
+    [JsonPropertyName("reserveScreenSpace")]
+    public bool ReserveScreenSpace { get; set; } = true;
+
     public void AddItem(DockItem item) => Items.Add(item);
 
     public void RemoveItem(int index) => Items.RemoveAt(index);

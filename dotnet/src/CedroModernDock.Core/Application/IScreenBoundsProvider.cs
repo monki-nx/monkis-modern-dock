@@ -9,6 +9,13 @@ public interface IScreenBoundsProvider
 {
     /// <summary>The visual bounds of the primary screen (work area, excluding taskbar).</summary>
     ScreenBounds GetPrimaryScreenBounds();
+
+    /// <summary>
+    /// The work area of the screen containing (or nearest to) the point. The
+    /// strip the dock itself reserves is not subtracted, so anchoring the dock
+    /// to the bottom edge never pushes it above its own reservation.
+    /// </summary>
+    ScreenBounds GetScreenBoundsAt(double x, double y);
 }
 
 /// <summary>Immutable rectangle describing screen bounds in device pixels.</summary>
