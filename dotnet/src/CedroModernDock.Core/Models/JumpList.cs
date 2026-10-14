@@ -16,7 +16,10 @@ public enum JumpListCategoryKind
 /// <summary>
 /// One jump list destination. Links run <see cref="TargetPath"/> with
 /// <see cref="Arguments"/> (e.g. VS Code's <c>--folder-uri</c>); documents
-/// (<see cref="IsLink"/> false) are opened with the owning program.
+/// (<see cref="IsLink"/> false) are opened with the owning program. Entries of
+/// packaged (Store) apps set <see cref="PackagedAppId"/>: they activate that
+/// app with <see cref="Arguments"/> as its activation context (WhatsApp's
+/// pinned chats).
 /// </summary>
 public sealed record JumpListEntry(
     string Title,
@@ -26,10 +29,11 @@ public sealed record JumpListEntry(
     string IconPath = "",
     int IconIndex = 0,
     bool IsLink = true,
-    bool IsSeparator = false)
+    bool IsSeparator = false,
+    string PackagedAppId = "")
 {
     /// <summary>Identity used to skip a destination already shown in an earlier category.</summary>
-    public string DestinationKey => $"{TargetPath}\u0001{Arguments}".ToUpperInvariant();
+    public string DestinationKey => $"{PackagedAppId}\u0001{TargetPath}\u0001{Arguments}".ToUpperInvariant();
 }
 
 /// <summary>A titled group of jump list entries. Known categories carry no title of their own.</summary>

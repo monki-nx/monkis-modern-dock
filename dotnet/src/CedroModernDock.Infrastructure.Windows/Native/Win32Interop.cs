@@ -26,6 +26,7 @@ public static class Win32Constants
 
     // ShowWindow commands
     public const int SW_RESTORE = 9;
+    public const int SW_MINIMIZE = 6;
     public const int SW_SHOW = 5;
     public const int SW_HIDE = 0;
 
@@ -238,6 +239,18 @@ public static class User32
 
     [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
+
+    /// <summary>GA_PARENT: the real parent (GetParent returns the owner for popup windows).</summary>
+    public const uint GA_PARENT = 1;
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+
+    [DllImport("user32.dll")]
+    public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern ushort RegisterClass(WNDCLASS lpWndClass);

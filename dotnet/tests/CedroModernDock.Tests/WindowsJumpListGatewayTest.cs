@@ -29,6 +29,23 @@ public class WindowsJumpListGatewayTest
     }
 
     [Fact]
+    public void MapsPackagedAppDataLogosToThePackageStateFolders()
+    {
+        string packages = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Packages");
+
+        Assert.Equal(
+            Path.Combine(packages, "Contoso.Chat_abc123", "LocalState", @"ContactPictures\contact_1.png"),
+            WindowsJumpListGateway.PackageLogoPath(
+                "ms-appdata:///local/ContactPictures/contact_1.png", "Contoso.Chat_abc123!App"));
+        Assert.Equal(
+            Path.Combine(packages, "Contoso.Chat_abc123", "RoamingState", "a b.png"),
+            WindowsJumpListGateway.PackageLogoPath("ms-appdata:///roaming/a%20b.png", "Contoso.Chat_abc123!App"));
+        Assert.Equal("", WindowsJumpListGateway.PackageLogoPath("ms-appx:///Assets/logo.png", "Contoso.Chat_abc123!App"));
+        Assert.Equal("", WindowsJumpListGateway.PackageLogoPath("", "Contoso.Chat_abc123!App"));
+    }
+
+    [Fact]
     public void ReadsTheCategoryFramingOfACustomDestinationsFile()
     {
         var data = new List<byte>();

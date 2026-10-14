@@ -249,30 +249,54 @@ public partial class MainWindowViewModel : ViewModelBase
         return Color.FromRgb(r, g, b);
     }
 
+    /// <summary>
+    /// Left click, taskbar-style: a running program is brought forward (or
+    /// minimized when it already is the active window); anything else is
+    /// launched or opened.
+    /// </summary>
     private void ExecuteItem(object? param)
     {
-        if (param is DockItemViewModel itemVm && _appServices != null)
-        {
-            bool launched = _appServices.ItemActionService.Execute(
-                itemVm.Item, () => OpenSettingsAction?.Invoke());
+        if (param is not DockItemViewModel itemVm || _appServices == null) return;
 
-            if (!launched && itemVm.Item is DockProgramItemModel programItem)
-            {
-                var loc = _appServices.LocalizationService;
-                System.Windows.Forms.MessageBox.Show(
-                    loc.Text("dialog.programNotFound.message",
-                        programItem.Label, programItem.ExecutablePath),
-                    loc.Text("dialog.programNotFound.title"),
-                    System.Windows.Forms.MessageBoxButtons.OK,
-                    System.Windows.Forms.MessageBoxIcon.Warning);
-            }
+        if (itemVm.Item is DockProgramItemModel programItem
+            && _appServices.WindowPreviewService.ActivateOrMinimize(OpenWindows(programItem.ExecutablePath, programItem.Label)))
+        {
+            PreviewDismissAction?.Invoke();
+            return;
         }
+        LaunchItem(itemVm);
     }
 
     // --- Context-menu actions (right click on a dock item) ---
 
-    /// <summary>Launches the item exactly like a left click (taskbar: app name entry).</summary>
-    public void LaunchItem(DockItemViewModel itemVm) => ExecuteItem(itemVm);
+    /// <summary>
+    /// Launches the item, starting a new instance even when it is already
+    /// running (taskbar: the app name entry of the menu).
+    /// </summary>
+    public void LaunchItem(DockItemViewModel itemVm)
+    {
+        if (_appServices == null) return;
+        bool launched = _appServices.ItemActionService.Execute(
+            itemVm.Item, () => OpenSettingsAction?.Invoke());
+
+        if (!launched && itemVm.Item is DockProgramItemModel programItem)
+        {
+            var loc = _appServices.LocalizationService;
+            System.Windows.Forms.MessageBox.Show(
+                loc.Text("dialog.programNotFound.message",
+                    programItem.Label, programItem.ExecutablePath),
+                loc.Text("dialog.programNotFound.title"),
+                System.Windows.Forms.MessageBoxButtons.OK,
+                System.Windows.Forms.MessageBoxIcon.Warning);
+        }
+    }
+
+    /// <summary>Left click on an unpinned running app: same taskbar behavior as pinned items.</summary>
+    public void ActivateRunningApp(RunningAppViewModel app)
+    {
+        _appServices?.WindowPreviewService.ActivateOrMinimize(OpenWindows(app.ExecutablePath, app.Label));
+        PreviewDismissAction?.Invoke();
+    }
 
     /// <summary>Starts a new instance of an unpinned running app.</summary>
     public void LaunchRunningApp(RunningAppViewModel app) =>
@@ -289,13 +313,13 @@ public partial class MainWindowViewModel : ViewModelBase
     /// Open windows of the executable: their count drives the close entries and
     /// the first one identifies the app for its jump list.
     /// </summary>
-    public List<CedroModernDock.Core.Domain.WindowInfo> OpenWindows(string? executablePath)
+    public List<CedroModernDock.Core.Domain.WindowInfo> OpenWindows(string? executablePath, string label)
     {
         if (_appServices == null || string.IsNullOrEmpty(executablePath)) return new();
         try
         {
             return _appServices.WindowPreviewService.LoadPreview(
-                new DockProgramItemModel("", executablePath));
+                new DockProgramItemModel(label, executablePath));
         }
         catch
         {
@@ -303,8 +327,8 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    public void CloseAllWindows(string? executablePath) =>
-        _appServices?.WindowPreviewService.CloseAll(executablePath);
+    public void CloseAllWindows(string? executablePath, string label) =>
+        _appServices?.WindowPreviewService.CloseAll(executablePath, label);
 
     /// <summary>Removes a pinned item from the dock. Returns true when the dock changed.</summary>
     public bool UnpinItem(DockItemViewModel itemVm)
@@ -375,7 +399,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var programItems = Items.Where(i => i.ShowIndicator && i.ExecutablePath != null).ToList();
         foreach (var item in programItems)
         {
-            bool isOpen = _appServices.WindowPreviewService.HasOpenWindows(item.ExecutablePath);
+            bool isOpen = _appServices.WindowPreviewService.HasOpenWindows(item.ExecutablePath, item.Label);
             Avalonia.Threading.Dispatcher.UIThread.Post(() => item.IsRunning = isOpen);
         }
     }
@@ -408,10 +432,17 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        List<string> pinnedPaths = Items
+        var pinnedPrograms = Items
             .Where(i => i.Item is DockProgramItemModel)
-            .Select(i => ((DockProgramItemModel)i.Item).ExecutablePath)
+            .Select(i => (DockProgramItemModel)i.Item)
             .ToList();
+        List<string> pinnedPaths = pinnedPrograms.Select(p => p.ExecutablePath).ToList();
+        // Pinned items started through an alias or a launcher (wt.exe, a
+        // WhatsApp launcher) own windows of another executable: the taskbar
+        // groups them by AppUserModelID, and so does the dock.
+        var pinnedAppIds = new HashSet<string>(
+            pinnedPrograms.SelectMany(p => _appServices.WindowPreviewService.AppIdsOf(p.ExecutablePath, p.Label)),
+            StringComparer.OrdinalIgnoreCase);
 
         List<CedroModernDock.Core.Domain.RunningWindowInfo> windows;
         try
@@ -425,7 +456,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var desired = windows
             .GroupBy(w => w.ExecutablePath, StringComparer.OrdinalIgnoreCase)
-            .Where(g => !IsPinned(g.Key, pinnedPaths))
+            .Where(g => !IsPinned(g.Key, pinnedPaths)
+                && !g.Any(w => w.AppId != null && pinnedAppIds.Contains(w.AppId)))
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>

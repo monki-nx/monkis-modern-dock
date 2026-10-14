@@ -20,6 +20,13 @@ internal static class JumpListNative
     public static readonly PROPERTYKEY PKEY_AppUserModel_IsDestListSeparator = new(new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), 6);
     public static readonly PROPERTYKEY PKEY_Link_TargetParsingPath = new(new Guid("B9B4B3FC-2B51-4A42-B5D8-324146AFCF25"), 2);
 
+    // Jump list items of packaged apps (Windows.UI.StartScreen.JumpList).
+    public static readonly PROPERTYKEY PKEY_AppUserModel_ActivationContext = new(new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), 20);
+    public static readonly PROPERTYKEY PKEY_AppUserModel_DestListProvidedTitle = new(new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), 27);
+    public static readonly PROPERTYKEY PKEY_AppUserModel_DestListLogoUri = new(new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), 29);
+
+    public static readonly Guid CLSID_ApplicationActivationManager = new("45BA127D-10A8-46EA-8AB7-56EA9078943C");
+
     public const ushort VT_BOOL = 11;
     public const ushort VT_LPWSTR = 31;
 
@@ -188,6 +195,14 @@ internal interface IApplicationDocumentLists
 {
     void SetAppID([MarshalAs(UnmanagedType.LPWStr)] string pszAppID);
     void GetList(int listType, uint cItemsDesired, ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object ppv);
+}
+
+[ComImport, Guid("2E941141-7F97-4756-BA1D-9DECDE894A3D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IApplicationActivationManager
+{
+    [PreserveSig]
+    int ActivateApplication([MarshalAs(UnmanagedType.LPWStr)] string appUserModelId,
+        [MarshalAs(UnmanagedType.LPWStr)] string? arguments, int options, out uint processId);
 }
 
 [ComImport, Guid("92CA9DCD-5622-4BBA-A805-5E9F541BD8C9"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

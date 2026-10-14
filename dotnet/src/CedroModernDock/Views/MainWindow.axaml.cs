@@ -129,7 +129,13 @@ public partial class MainWindow : Window
         if (_appServices == null) return;
         if (!force && _appServices.PositioningService.IsDynamicPositioning()) return;
         var (x, y) = _appServices.PositioningService.ResolvePosition(Width, Height);
-        Position = new PixelPoint((int)x, (int)y);
+        // The dock is parented to the desktop window, so a position set on it
+        // is relative to that parent, whose origin is the virtual screen's
+        // top-left (negative with a monitor above or left of the primary one),
+        // while Position reads back in screen coordinates. Without this offset
+        // the saved position drifts by that origin on every start.
+        var (originX, originY) = _dockBehavior?.GetParentOrigin() ?? (0, 0);
+        Position = new PixelPoint((int)x - originX, (int)y - originY);
     }
 
     private void OnDockSizeChanged(object? sender, SizeChangedEventArgs e)
@@ -199,33 +205,43 @@ public partial class MainWindow : Window
         });
     }
 
+    /// <summary>Middle click on a pinned item starts a new instance, as on the taskbar.</summary>
+    private void OnItemPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton != MouseButton.Middle) return;
+        if (sender is not Button { DataContext: DockItemViewModel itemVm }) return;
+        if (DataContext is not MainWindowViewModel vm || itemVm.Item is DockSettingsItemModel) return;
+        e.Handled = true;
+        HidePreview();
+        vm.LaunchItem(itemVm);
+    }
+
+    /// <summary>Middle click on an unpinned running app starts a new instance, as on the taskbar.</summary>
+    private void OnRunningAppPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton != MouseButton.Middle) return;
+        if (sender is not Button { DataContext: RunningAppViewModel app }) return;
+        if (DataContext is not MainWindowViewModel vm) return;
+        e.Handled = true;
+        HidePreview();
+        vm.LaunchRunningApp(app);
+    }
+
     /// <summary>
-    /// Clicking an unpinned running app activates its window when it has exactly
-    /// one open window (taskbar-style); with multiple windows nothing happens —
-    /// the preview popup still offers per-window control via hover.
+    /// Clicking an unpinned running app behaves like the taskbar (and like a
+    /// pinned item): bring its window forward, minimize it when it is already
+    /// active, or cycle through its windows when it has several.
     /// </summary>
     private void OnRunningAppClicked(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button button || _appServices == null) return;
-        if (button.DataContext is not RunningAppViewModel vm) return;
-
-        string executablePath = vm.ExecutablePath;
-        List<WindowInfo> windows;
-        try
-        {
-            windows = _appServices.WindowPreviewService.LoadPreview(
-                new DockProgramItemModel(vm.Label, executablePath));
-        }
-        catch (Exception)
-        {
-            return;
-        }
-        if (windows.Count != 1) return;
+        if (button.DataContext is not RunningAppViewModel app) return;
+        if (DataContext is not MainWindowViewModel vm) return;
 
         ++_previewRequestId;
         _previewPopup?.HideNow();
         _hoveredButton = null;
-        _appServices.WindowPreviewService.Activate(windows[0]);
+        vm.ActivateRunningApp(app);
     }
 
     /// <summary>
@@ -244,7 +260,7 @@ public partial class MainWindow : Window
         if (itemVm.Item is DockSettingsItemModel) return;
 
         var loc = _appServices.LocalizationService;
-        var windows = vm.OpenWindows(itemVm.ExecutablePath);
+        var windows = vm.OpenWindows(itemVm.ExecutablePath, itemVm.Label);
         var entries = new List<Control>();
         if (itemVm.ExecutablePath is { } executablePath)
             AddJumpListEntries(entries, executablePath, itemVm.Label, windows);
@@ -261,7 +277,7 @@ public partial class MainWindow : Window
             if (vm.UnpinItem(itemVm))
                 SettingsWindow.RefreshItemsIfOpen();
         }, GlyphUnpin));
-        AddCloseEntry(entries, vm, itemVm.ExecutablePath, windows.Count);
+        AddCloseEntry(entries, windows);
 
         ShowContextMenu(button, entries);
     }
@@ -276,7 +292,7 @@ public partial class MainWindow : Window
 
         var loc = _appServices.LocalizationService;
         var programItem = new DockProgramItemModel(app.Label, app.ExecutablePath);
-        var windows = vm.OpenWindows(app.ExecutablePath);
+        var windows = vm.OpenWindows(app.ExecutablePath, app.Label);
         var entries = new List<Control>();
         AddJumpListEntries(entries, app.ExecutablePath, app.Label, windows);
 
@@ -290,7 +306,7 @@ public partial class MainWindow : Window
             if (vm.PinRunningApp(app))
                 SettingsWindow.RefreshItemsIfOpen();
         }, GlyphPin));
-        AddCloseEntry(entries, vm, app.ExecutablePath, windows.Count);
+        AddCloseEntry(entries, windows);
 
         ShowContextMenu(button, entries);
     }
@@ -346,12 +362,15 @@ public partial class MainWindow : Window
     }
 
     /// <summary>"Close window" for one open window, "Close all windows" for several, nothing when closed.</summary>
-    private void AddCloseEntry(List<Control> entries, MainWindowViewModel vm, string? executablePath, int openWindows)
+    private void AddCloseEntry(List<Control> entries, List<WindowInfo> windows)
     {
-        if (_appServices == null || openWindows == 0) return;
-        string key = openWindows == 1 ? "contextMenu.closeWindow" : "contextMenu.closeAllWindows";
-        entries.Add(MenuEntry(_appServices.LocalizationService.Text(key),
-            () => vm.CloseAllWindows(executablePath), GlyphClose));
+        if (_appServices is not { } services || windows.Count == 0) return;
+        string key = windows.Count == 1 ? "contextMenu.closeWindow" : "contextMenu.closeAllWindows";
+        entries.Add(MenuEntry(services.LocalizationService.Text(key), () =>
+        {
+            foreach (var window in windows)
+                services.WindowPreviewService.Close(window);
+        }, GlyphClose));
     }
 
     // Segoe Fluent Icons glyphs (Segoe MDL2 Assets fallback), as on the taskbar menu.

@@ -14,13 +14,16 @@ public class WindowPreviewService
     }
 
     public List<WindowInfo> LoadPreview(DockProgramItemModel item) =>
-        _windowQueryGateway.FindOpenWindows(item.ExecutablePath);
+        _windowQueryGateway.FindOpenWindows(item.ExecutablePath, item.Label);
 
-    public bool HasOpenWindows(string? executablePath) =>
-        _windowQueryGateway.FindOpenWindows(executablePath).Count > 0;
+    public bool HasOpenWindows(string? executablePath, string? label = null) =>
+        _windowQueryGateway.FindOpenWindows(executablePath, label).Count > 0;
 
     public List<RunningWindowInfo> FindTaskbarWindows() =>
         _windowQueryGateway.FindTaskbarWindows();
+
+    public IReadOnlyCollection<string> AppIdsOf(string executablePath, string? label) =>
+        _windowQueryGateway.AppIdsOf(executablePath, label);
 
     public void Activate(WindowInfo windowInfo) => _windowQueryGateway.Activate(windowInfo);
 
@@ -30,11 +33,51 @@ public class WindowPreviewService
     /// Asks every open window of the executable to close (WM_CLOSE, like the
     /// taskbar's "Close all windows"). Returns how many windows were asked.
     /// </summary>
-    public int CloseAll(string? executablePath)
+    public int CloseAll(string? executablePath, string? label = null)
     {
-        var windows = _windowQueryGateway.FindOpenWindows(executablePath);
+        var windows = _windowQueryGateway.FindOpenWindows(executablePath, label);
         foreach (var window in windows)
             _windowQueryGateway.Close(window);
         return windows.Count;
+    }
+
+    /// <summary>
+    /// Taskbar click on a running app (windows topmost first):
+    /// <list type="bullet">
+    /// <item>one window: bring it forward, or minimize it when it already is the active window;</item>
+    /// <item>several windows: bring the most recent forward, or, when one of
+    /// them is active, cycle to the next one.</item>
+    /// </list>
+    /// Minimized windows come back to their previous placement (snapped,
+    /// maximized or floating). Returns false when there is no window.
+    /// </summary>
+    public bool ActivateOrMinimize(IReadOnlyList<WindowInfo> windows)
+    {
+        if (windows.Count == 0) return false;
+
+        IntPtr foreground = _windowQueryGateway.GetForegroundWindow();
+        int activeIndex = -1;
+        for (int i = 0; i < windows.Count; i++)
+        {
+            if (windows[i].Handle == foreground)
+            {
+                activeIndex = i;
+                break;
+            }
+        }
+
+        if (windows.Count == 1)
+        {
+            var only = windows[0];
+            if (activeIndex == 0 && !_windowQueryGateway.IsMinimized(only))
+                _windowQueryGateway.Minimize(only);
+            else
+                _windowQueryGateway.Activate(only);
+            return true;
+        }
+
+        var target = activeIndex < 0 ? windows[0] : windows[(activeIndex + 1) % windows.Count];
+        _windowQueryGateway.Activate(target);
+        return true;
     }
 }

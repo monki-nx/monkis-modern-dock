@@ -31,9 +31,14 @@ public sealed class WindowsJumpListGateway : IJumpListGateway
     private const int DocumentListSize = 20;
     private const int IconSize = 32;
 
-    private readonly AppUserModelIdResolver _appIds = new();
+    private readonly AppUserModelIdResolver _appIds;
     private readonly string _recentDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "Windows", "Recent");
+
+    public WindowsJumpListGateway(AppUserModelIdResolver? appIds = null)
+    {
+        _appIds = appIds ?? new AppUserModelIdResolver();
+    }
 
     public int MaxItems
     {
@@ -201,13 +206,30 @@ public sealed class WindowsJumpListGateway : IJumpListGateway
     {
         string title = "";
         bool separator = false;
+        string packagedAppId = "", activationContext = "", logoUri = "";
         if (instance is IPropertyStore store)
         {
             title = JumpListNative.GetString(store, JumpListNative.PKEY_Title) ?? "";
             separator = JumpListNative.GetBool(store, JumpListNative.PKEY_AppUserModel_IsDestListSeparator);
+            // Packaged apps leave PKEY_Title empty and keep their own title,
+            // activation arguments and logo in the AppUserModel properties.
+            if (string.IsNullOrEmpty(title))
+                title = JumpListNative.GetString(store, JumpListNative.PKEY_AppUserModel_DestListProvidedTitle) ?? "";
+            activationContext = JumpListNative.GetString(store, JumpListNative.PKEY_AppUserModel_ActivationContext) ?? "";
+            logoUri = JumpListNative.GetString(store, JumpListNative.PKEY_AppUserModel_DestListLogoUri) ?? "";
+            if (activationContext.Length > 0 || logoUri.Length > 0)
+                packagedAppId = JumpListNative.GetString(store, JumpListNative.PKEY_AppUserModel_ID) ?? "";
         }
         if (separator)
             return new JumpListEntry("", "", IsSeparator: true);
+
+        if (packagedAppId.Length > 0)
+        {
+            // The link targets the app itself (a shell:AppsFolder item), not a file.
+            if (string.IsNullOrEmpty(title)) return null;
+            return new JumpListEntry(title, "", activationContext,
+                IconPath: PackageLogoPath(logoUri, packagedAppId), PackagedAppId: packagedAppId);
+        }
 
         if (instance is IShellLinkW link)
         {
@@ -291,9 +313,36 @@ public sealed class WindowsJumpListGateway : IJumpListGateway
         return entries;
     }
 
+    /// <summary>
+    /// Maps a packaged app's logo URI to a file: ms-appdata:///local|roaming|temp/
+    /// live under %LOCALAPPDATA%\Packages\&lt;family&gt;\LocalState|RoamingState|TempState.
+    /// Other schemes (ms-appx) are not resolved.
+    /// </summary>
+    public static string PackageLogoPath(string logoUri, string appId)
+    {
+        const string prefix = "ms-appdata:///";
+        if (!logoUri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return "";
+        string family = appId.Split('!')[0];
+        string relative = Uri.UnescapeDataString(logoUri[prefix.Length..]);
+        int slash = relative.IndexOf('/');
+        if (slash <= 0) return "";
+        string? folder = relative[..slash].ToLowerInvariant() switch
+        {
+            "local" => "LocalState",
+            "roaming" => "RoamingState",
+            "temp" => "TempState",
+            _ => null
+        };
+        if (folder == null) return "";
+        string packages = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Packages");
+        return Path.Combine(packages, family, folder, relative[(slash + 1)..].Replace('/', '\\'));
+    }
+
     public bool Open(JumpListEntry entry, string ownerExecutablePath)
     {
-        if (entry.IsSeparator || string.IsNullOrEmpty(entry.TargetPath)) return false;
+        if (entry.IsSeparator) return false;
+        if (entry.PackagedAppId.Length > 0) return ActivatePackagedApp(entry.PackagedAppId, entry.Arguments);
+        if (string.IsNullOrEmpty(entry.TargetPath)) return false;
         try
         {
             ProcessStartInfo startInfo;
@@ -323,12 +372,43 @@ public sealed class WindowsJumpListGateway : IJumpListGateway
         }
     }
 
+    /// <summary>Starts (or re-activates) a packaged app with the item's activation arguments.</summary>
+    private static bool ActivatePackagedApp(string appId, string arguments)
+    {
+        try
+        {
+            var manager = (IApplicationActivationManager)Activator.CreateInstance(
+                Type.GetTypeFromCLSID(JumpListNative.CLSID_ApplicationActivationManager, throwOnError: true)!)!;
+            try
+            {
+                return manager.ActivateApplication(appId, arguments, 0, out _) == 0;
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(manager);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"Failed to activate {appId}: {e.Message}");
+            return false;
+        }
+    }
+
+    private static readonly string[] ImageExtensions = { ".png", ".jpg", ".jpeg", ".bmp", ".gif" };
+
     public string? ResolveIcon(JumpListEntry entry)
     {
         if (entry.IsSeparator) return null;
         string? iconFile = ResolveIconFile(entry.IconPath);
         bool fromIconLocation = iconFile != null;
-        string key = fromIconLocation ? $"{iconFile},{entry.IconIndex}" : entry.TargetPath;
+        bool isImage = fromIconLocation
+            && ImageExtensions.Contains(Path.GetExtension(iconFile), StringComparer.OrdinalIgnoreCase);
+        // Images (a packaged app's logo, a contact picture) can change in
+        // place, so their cache entry also keys on the file's write time.
+        string key = !fromIconLocation ? entry.TargetPath
+            : isImage ? $"{iconFile},{File.GetLastWriteTimeUtc(iconFile!).Ticks}"
+            : $"{iconFile},{entry.IconIndex}";
         if (string.IsNullOrEmpty(key)) return null;
 
         string cachePath = Path.Combine(
@@ -338,6 +418,15 @@ public sealed class WindowsJumpListGateway : IJumpListGateway
 
         try
         {
+            if (isImage)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
+                using var source = System.Drawing.Image.FromFile(iconFile!);
+                using var scaled = new System.Drawing.Bitmap(source, IconSize, IconSize);
+                scaled.Save(cachePath, ImageFormat.Png);
+                return File.Exists(cachePath) ? cachePath : null;
+            }
+
             IntPtr icon = fromIconLocation
                 ? ExtractIcon(iconFile!, entry.IconIndex)
                 : ShellIcon(entry.TargetPath);

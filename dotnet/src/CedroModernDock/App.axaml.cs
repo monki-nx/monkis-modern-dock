@@ -159,10 +159,12 @@ public partial class App : Application
 
         var screenBoundsProvider = new WindowsScreenBoundsProvider();
 
+        // One AppUserModelID resolver serves window grouping and jump lists.
         // Reading the Start menu app catalog takes a moment; do it before the
-        // first right click needs it.
-        var jumpListGateway = new WindowsJumpListGateway();
-        _ = Task.Run(jumpListGateway.Prewarm);
+        // first click needs it.
+        var appIds = new AppUserModelIdResolver();
+        _ = Task.Run(appIds.Prewarm);
+        var jumpListGateway = new WindowsJumpListGateway(appIds);
 
         return new AppServices(
             DockService: dockService,
@@ -173,7 +175,7 @@ public partial class App : Application
                 new WindowsFolderLauncher(),
                 new WindowsModuleLauncher()
             ),
-            WindowPreviewService: new WindowPreviewService(new Win32WindowQueryGateway()),
+            WindowPreviewService: new WindowPreviewService(new Win32WindowQueryGateway(appIds)),
             IconGateway: new CachedWindowsIconGateway(),
             LocalizationService: new LocalizationService(dockService),
             JumpListService: new JumpListService(jumpListGateway)

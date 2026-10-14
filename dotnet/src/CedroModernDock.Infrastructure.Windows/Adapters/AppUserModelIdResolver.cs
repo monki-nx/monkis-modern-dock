@@ -12,10 +12,15 @@ using CedroModernDock.Infrastructure.Windows.Native;
 /// Candidates are tried in order; the caller keeps the first one that has a
 /// jump list on disk.
 /// </summary>
-internal sealed class AppUserModelIdResolver
+public sealed class AppUserModelIdResolver
 {
     private const string ExplorerAppId = "Microsoft.Windows.Explorer";
     private static readonly TimeSpan CatalogLifetime = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan ItemIdsLifetime = TimeSpan.FromMinutes(1);
+
+    private readonly object _cacheLock = new();
+    private readonly Dictionary<IntPtr, (uint ProcessId, string? AppId)> _windowIds = new();
+    private readonly Dictionary<string, (DateTime LoadedAt, string[] AppIds)> _itemIds = new(StringComparer.OrdinalIgnoreCase);
 
     // Known folders the shell substitutes by their GUID when it derives an
     // implicit AppUserModelID from an executable path.
@@ -38,6 +43,58 @@ internal sealed class AppUserModelIdResolver
 
     /// <summary>Loads the Start menu app catalog ahead of the first right click.</summary>
     public void Prewarm() => GetCatalog();
+
+    /// <summary>
+    /// The AppUserModelID the taskbar groups a window under: the window's own
+    /// property, else its packaged process's ID. Cached per window (and
+    /// process, since handles are recycled); null for ordinary desktop
+    /// processes that set none on the window.
+    /// </summary>
+    public string? WindowAppId(IntPtr hwnd)
+    {
+        User32.GetWindowThreadProcessId(hwnd, out uint pid);
+        lock (_cacheLock)
+        {
+            if (_windowIds.TryGetValue(hwnd, out var cached) && cached.ProcessId == pid)
+                return cached.AppId;
+        }
+
+        string? appId = FromWindow(hwnd) ?? FromProcess(hwnd);
+        lock (_cacheLock)
+        {
+            if (_windowIds.Count > 512)
+            {
+                foreach (var stale in _windowIds.Keys.Where(h => !User32.IsWindow(h)).ToList())
+                    _windowIds.Remove(stale);
+            }
+            _windowIds[hwnd] = (pid, appId);
+        }
+        return appId;
+    }
+
+    /// <summary>
+    /// AppUserModelIDs a pinned item's windows can carry: the Start menu
+    /// shortcut's ID, its package's apps, or the Start menu app of the same
+    /// name. Unlike <see cref="Candidates"/> it leaves out the implicit
+    /// path-derived IDs, which never appear on windows.
+    /// </summary>
+    public IReadOnlyCollection<string> ItemAppIds(string executablePath, string? label)
+    {
+        string key = executablePath + "|" + label;
+        lock (_cacheLock)
+        {
+            if (_itemIds.TryGetValue(key, out var cached) && DateTime.UtcNow - cached.LoadedAt < ItemIdsLifetime)
+                return cached.AppIds;
+        }
+
+        var implicitIds = new HashSet<string>(ImplicitAppIds(executablePath), StringComparer.OrdinalIgnoreCase);
+        string[] ids = Candidates(executablePath, label ?? "", IntPtr.Zero)
+            .Where(id => !implicitIds.Contains(id))
+            .ToArray();
+        lock (_cacheLock)
+            _itemIds[key] = (DateTime.UtcNow, ids);
+        return ids;
+    }
 
     public IEnumerable<string> Candidates(string executablePath, string label, IntPtr windowHandle)
     {

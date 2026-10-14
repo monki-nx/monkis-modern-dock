@@ -51,7 +51,8 @@
                                 RenderTransformOrigin="50%, 50%"
                                 PointerEntered="OnItemPointerEntered"
                                 PointerExited="OnItemPointerExited"
-                                ContextRequested="OnItemContextRequested">
+                                ContextRequested="OnItemContextRequested"
+                                PointerReleased="OnItemPointerReleased">
 
                             <!-- Hover scale animation. Both scale states come from styles:
                                  a local RenderTransform would win over the :pointerover
@@ -136,7 +137,8 @@
                                 Click="OnRunningAppClicked"
                                 PointerEntered="OnRunningAppPointerEntered"
                                 PointerExited="OnItemPointerExited"
-                                ContextRequested="OnRunningAppContextRequested">
+                                ContextRequested="OnRunningAppContextRequested"
+                                PointerReleased="OnRunningAppPointerReleased">
 
                             <Button.Transitions>
                                 <Transitions>
