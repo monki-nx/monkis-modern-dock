@@ -37,6 +37,71 @@ public class WindowsProgramLauncher : IProgramLauncher
         }
     }
 
+    public bool LaunchAsAdministrator(string executablePath, string label)
+    {
+        if (string.IsNullOrWhiteSpace(executablePath))
+            return false;
+
+        try
+        {
+            var launchCommand = ResolveLaunchCommand(executablePath);
+            if (!File.Exists(launchCommand.ExecutablePath))
+            {
+                Debug.WriteLine($"Executable not found: {launchCommand.ExecutablePath}");
+                return false;
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = launchCommand.ExecutablePath,
+                Arguments = string.Join(" ", launchCommand.Arguments.Select(a => $"\"{a}\"")),
+                UseShellExecute = true,
+                Verb = "runas"
+            });
+            Debug.WriteLine($"(Elevated) Executing: {label}");
+            return true;
+        }
+        catch (System.ComponentModel.Win32Exception e) when (e.NativeErrorCode == ErrorCancelled)
+        {
+            // The user declined the UAC prompt: nothing failed.
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"Failed to open elevated: {label} ({e.Message})");
+            return false;
+        }
+    }
+
+    public bool OpenFileLocation(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        try
+        {
+            string fullPath = Path.GetFullPath(path);
+            if (!File.Exists(fullPath) && !Directory.Exists(fullPath))
+                return false;
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{fullPath}\"",
+                UseShellExecute = true
+            });
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"Failed to open file location: {path} ({e.Message})");
+            return false;
+        }
+    }
+
+    /// <summary>ERROR_CANCELLED: the user dismissed the UAC prompt.</summary>
+    private const int ErrorCancelled = 1223;
+
     private bool ExecuteAndHandleElevation(string path, string label)
     {
         var launchCommand = ResolveLaunchCommand(path);

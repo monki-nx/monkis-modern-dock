@@ -34,6 +34,41 @@ public class DockService
         SaveChanges();
     }
 
+    /// <summary>
+    /// Removes the given item instance from the dock (context-menu "Unpin").
+    /// The settings item is mandatory and is never removed. Returns true
+    /// when the item was found and removed.
+    /// </summary>
+    public bool UnpinItem(DockItem item)
+    {
+        if (item is DockSettingsItemModel) return false;
+        int index = _dock.Items.IndexOf(item);
+        if (index < 0) return false;
+        RemoveItem(index);
+        return true;
+    }
+
+    /// <summary>
+    /// Pins a running program to the dock (context-menu "Pin"). The new item
+    /// goes before a trailing settings item so the settings button stays
+    /// last. Returns false when the executable is already pinned.
+    /// </summary>
+    public bool PinProgram(string label, string executablePath)
+    {
+        bool alreadyPinned = _dock.Items.OfType<DockProgramItemModel>()
+            .Any(p => string.Equals(p.ExecutablePath, executablePath, StringComparison.OrdinalIgnoreCase));
+        if (alreadyPinned) return false;
+
+        var item = new DockProgramItemModel(label, executablePath);
+        int count = _dock.Items.Count;
+        if (count > 0 && _dock.Items[count - 1] is DockSettingsItemModel)
+            _dock.Items.Insert(count - 1, item);
+        else
+            _dock.AddItem(item);
+        SaveChanges();
+        return true;
+    }
+
     public void SwapItems(int firstItemIdx, int secondItemIdx)
     {
         _dock.SwapItems(firstItemIdx, secondItemIdx);

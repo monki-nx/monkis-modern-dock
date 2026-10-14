@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -21,6 +22,10 @@ public partial class MainWindow : Window
     private DockWindowBehavior? _dockBehavior;
     private AppServices? _appServices;
     private WindowPreviewPopup? _previewPopup;
+    private ContextMenu? _openContextMenu;
+    private IntPtr _contextMenuHwnd;
+    private IntPtr _contextMenuForeground;
+    private readonly DispatcherTimer _contextMenuWatch = new() { Interval = TimeSpan.FromMilliseconds(40) };
     private Button? _hoveredButton;
     private Button? _previewAnchor;
     private int _previewRequestId;
@@ -60,6 +65,7 @@ public partial class MainWindow : Window
             _previewCloseRefresh.Stop();
             RefreshPreviewAfterClose();
         };
+        _contextMenuWatch.Tick += OnContextMenuWatchTick;
     }
 
     private bool IsPointerOverPreview()
@@ -135,6 +141,7 @@ public partial class MainWindow : Window
     private void OnItemPointerEntered(object? sender, PointerEventArgs e)
     {
         if (sender is not Button button || _appServices == null) return;
+        if (_openContextMenu != null) return;
         if (button.DataContext is not DockItemViewModel vm || vm.Item is not DockProgramItemModel item)
             return;
 
@@ -164,6 +171,7 @@ public partial class MainWindow : Window
     private void OnRunningAppPointerEntered(object? sender, PointerEventArgs e)
     {
         if (sender is not Button button || _appServices == null) return;
+        if (_openContextMenu != null) return;
         if (button.DataContext is not RunningAppViewModel vm) return;
 
         _hoveredButton = button;
@@ -218,6 +226,239 @@ public partial class MainWindow : Window
         _previewPopup?.HideNow();
         _hoveredButton = null;
         _appServices.WindowPreviewService.Activate(windows[0]);
+    }
+
+    /// <summary>
+    /// Right click (or the Menu key) on a pinned item: the taskbar menu — the
+    /// app's jump list (VS Code's recent folders, Terminal profiles, ...)
+    /// followed by the item name (launch), elevation, file location, unpin and
+    /// close. The settings item is mandatory and opens settings on click, so
+    /// it has none.
+    /// </summary>
+    private void OnItemContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not Button button || _appServices == null) return;
+        if (button.DataContext is not DockItemViewModel itemVm) return;
+        if (DataContext is not MainWindowViewModel vm) return;
+        if (itemVm.Item is DockSettingsItemModel) return;
+
+        var loc = _appServices.LocalizationService;
+        var windows = vm.OpenWindows(itemVm.ExecutablePath);
+        var entries = new List<Control>();
+        if (itemVm.ExecutablePath is { } executablePath)
+            AddJumpListEntries(entries, executablePath, itemVm.Label, windows);
+
+        entries.Add(MenuEntry(itemVm.Label, () => vm.LaunchItem(itemVm), icon: itemVm.Icon));
+        if (itemVm.Item is DockProgramItemModel)
+            entries.Add(MenuEntry(loc.Text("contextMenu.runAsAdministrator"),
+                () => vm.RunAsAdministrator(itemVm.Item), GlyphAdministrator));
+        if (DockItemActionService.HasFileLocation(itemVm.Item))
+            entries.Add(MenuEntry(loc.Text("contextMenu.openFileLocation"),
+                () => vm.OpenFileLocation(itemVm.Item), GlyphFolder));
+        entries.Add(MenuEntry(loc.Text("contextMenu.unpin"), () =>
+        {
+            if (vm.UnpinItem(itemVm))
+                SettingsWindow.RefreshItemsIfOpen();
+        }, GlyphUnpin));
+        AddCloseEntry(entries, vm, itemVm.ExecutablePath, windows.Count);
+
+        ShowContextMenu(button, entries);
+    }
+
+    /// <summary>Right click on an unpinned running app: jump list, then launch, elevate, locate, pin, close.</summary>
+    private void OnRunningAppContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not Button button || _appServices == null) return;
+        if (button.DataContext is not RunningAppViewModel app) return;
+        if (DataContext is not MainWindowViewModel vm) return;
+
+        var loc = _appServices.LocalizationService;
+        var programItem = new DockProgramItemModel(app.Label, app.ExecutablePath);
+        var windows = vm.OpenWindows(app.ExecutablePath);
+        var entries = new List<Control>();
+        AddJumpListEntries(entries, app.ExecutablePath, app.Label, windows);
+
+        entries.Add(MenuEntry(app.Label, () => vm.LaunchRunningApp(app), icon: app.Icon));
+        entries.Add(MenuEntry(loc.Text("contextMenu.runAsAdministrator"),
+            () => vm.RunAsAdministrator(programItem), GlyphAdministrator));
+        entries.Add(MenuEntry(loc.Text("contextMenu.openFileLocation"),
+            () => vm.OpenFileLocation(programItem), GlyphFolder));
+        entries.Add(MenuEntry(loc.Text("contextMenu.pin"), () =>
+        {
+            if (vm.PinRunningApp(app))
+                SettingsWindow.RefreshItemsIfOpen();
+        }, GlyphPin));
+        AddCloseEntry(entries, vm, app.ExecutablePath, windows.Count);
+
+        ShowContextMenu(button, entries);
+    }
+
+    /// <summary>
+    /// Adds the app's jump list as on the taskbar: a gray header per category,
+    /// its destinations, and a separator before the dock's own entries.
+    /// </summary>
+    private void AddJumpListEntries(List<Control> entries, string executablePath, string label,
+        List<WindowInfo> windows)
+    {
+        if (_appServices == null) return;
+        var jumpLists = _appServices.JumpListService;
+        IReadOnlyList<JumpListCategory> categories;
+        try
+        {
+            IntPtr window = windows.Count > 0 ? windows[0].Handle : IntPtr.Zero;
+            categories = jumpLists.Load(executablePath, label, window);
+        }
+        catch (Exception)
+        {
+            return; // a broken jump list must never block the dock's own menu
+        }
+        if (categories.Count == 0) return;
+
+        var loc = _appServices.LocalizationService;
+        foreach (var category in categories)
+        {
+            string title = category.Kind switch
+            {
+                JumpListCategoryKind.Recent => loc.Text("jumpList.recent"),
+                JumpListCategoryKind.Frequent => loc.Text("jumpList.frequent"),
+                JumpListCategoryKind.Tasks => loc.Text("jumpList.tasks"),
+                _ => category.Title
+            };
+            entries.Add(new MenuItem { Header = title, IsEnabled = false, FontSize = 12 });
+
+            foreach (var entry in category.Entries)
+            {
+                if (entry.IsSeparator)
+                {
+                    entries.Add(new Separator());
+                    continue;
+                }
+                var item = MenuEntry(entry.Title, () => jumpLists.Open(entry, executablePath),
+                    icon: IconLoader.LoadFromFile(jumpLists.ResolveIcon(entry)));
+                if (!entry.IsLink)
+                    ToolTip.SetTip(item, entry.TargetPath);
+                entries.Add(item);
+            }
+        }
+        entries.Add(new Separator());
+    }
+
+    /// <summary>"Close window" for one open window, "Close all windows" for several, nothing when closed.</summary>
+    private void AddCloseEntry(List<Control> entries, MainWindowViewModel vm, string? executablePath, int openWindows)
+    {
+        if (_appServices == null || openWindows == 0) return;
+        string key = openWindows == 1 ? "contextMenu.closeWindow" : "contextMenu.closeAllWindows";
+        entries.Add(MenuEntry(_appServices.LocalizationService.Text(key),
+            () => vm.CloseAllWindows(executablePath), GlyphClose));
+    }
+
+    // Segoe Fluent Icons glyphs (Segoe MDL2 Assets fallback), as on the taskbar menu.
+    private const string GlyphAdministrator = "";
+    private const string GlyphFolder = "";
+    private const string GlyphPin = "";
+    private const string GlyphUnpin = "";
+    private const string GlyphClose = "";
+    private static readonly FontFamily GlyphFont = new("Segoe Fluent Icons, Segoe MDL2 Assets");
+
+    private static MenuItem MenuEntry(string header, Action action, string? glyph = null, IImage? icon = null)
+    {
+        // Long destination names are cut with an ellipsis, as on the taskbar.
+        var entry = new MenuItem
+        {
+            Header = new TextBlock { Text = header, MaxWidth = 280, TextTrimming = TextTrimming.CharacterEllipsis }
+        };
+        if (icon != null)
+            entry.Icon = new Image { Source = icon, Width = 16, Height = 16 };
+        else if (glyph != null)
+            entry.Icon = new TextBlock
+            {
+                Text = glyph,
+                FontFamily = GlyphFont,
+                FontSize = 14,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+        // Run after the menu has closed: unpinning rebuilds the dock items,
+        // which removes the button the menu is still anchored to.
+        entry.Click += (_, _) => Dispatcher.UIThread.Post(action);
+        return entry;
+    }
+
+    private void ShowContextMenu(Control anchor, List<Control> entries)
+    {
+        // The taskbar drops the preview at once when its menu opens (no fade).
+        ++_previewRequestId;
+        _previewPopup?.HideNow();
+        _hoveredButton = null;
+        _openContextMenu?.Close();
+
+        bool vertical = _appServices?.AppearanceService.GetVerticalDock() == true;
+        var menu = new ContextMenu
+        {
+            // Outside the dock bar, like the taskbar menu. The popup flips to
+            // the opposite side when the screen edge leaves no room.
+            Placement = vertical ? PlacementMode.Right : PlacementMode.Top,
+            ItemsSource = entries
+        };
+        menu.Closed += (_, _) =>
+        {
+            if (_openContextMenu != menu) return;
+            _openContextMenu = null;
+            _contextMenuHwnd = IntPtr.Zero;
+            _contextMenuWatch.Stop();
+        };
+        _openContextMenu = menu;
+        menu.Open(anchor);
+
+        // The dock lives in the desktop layer, and so would its popups: a
+        // window covering the area above the dock would hide the menu. Keep
+        // it topmost, like the taskbar menu.
+        _contextMenuHwnd = TopLevel.GetTopLevel(menu)?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (_contextMenuHwnd != IntPtr.Zero)
+            User32.SetWindowPos(_contextMenuHwnd, Win32Constants.HWND_TOPMOST, 0, 0, 0, 0,
+                Win32Constants.SWP_NOMOVE | Win32Constants.SWP_NOSIZE | Win32Constants.SWP_NOACTIVATE);
+
+        _contextMenuForeground = User32.GetForegroundWindow();
+        _contextMenuWatch.Start();
+    }
+
+    /// <summary>
+    /// Light dismiss for the context menu. The dock is WS_EX_NOACTIVATE and
+    /// parented to the desktop, so it never becomes the active window and
+    /// Avalonia never sees the deactivation that normally closes a menu when
+    /// the user clicks another app. Poll instead: any mouse button pressed
+    /// outside the menu, Escape, or a foreground change closes it.
+    /// </summary>
+    private void OnContextMenuWatchTick(object? sender, EventArgs e)
+    {
+        if (_openContextMenu is not { } menu)
+        {
+            _contextMenuWatch.Stop();
+            return;
+        }
+
+        bool buttonDown = IsKeyDown(Win32Constants.VK_LBUTTON)
+            || IsKeyDown(Win32Constants.VK_RBUTTON)
+            || IsKeyDown(Win32Constants.VK_MBUTTON);
+        if ((buttonDown && !IsPointerOverContextMenu())
+            || IsKeyDown(Win32Constants.VK_ESCAPE)
+            || User32.GetForegroundWindow() != _contextMenuForeground)
+        {
+            menu.Close();
+        }
+    }
+
+    private static bool IsKeyDown(int virtualKey) =>
+        (User32.GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+
+    private bool IsPointerOverContextMenu()
+    {
+        if (_contextMenuHwnd == IntPtr.Zero) return false;
+        if (!User32.GetCursorPos(out POINT pt)) return false;
+        if (!User32.GetWindowRect(_contextMenuHwnd, out RECT rect)) return false;
+        return pt.X >= rect.Left && pt.X < rect.Right && pt.Y >= rect.Top && pt.Y < rect.Bottom;
     }
 
     private void OnPreviewLoaded(int requestId, Button button, string label,
@@ -449,6 +690,8 @@ public partial class MainWindow : Window
     {
         PositionChanged -= OnDockPositionChanged;
         _positionPersistTimer.Stop();
+        _contextMenuWatch.Stop();
+        _openContextMenu?.Close();
         HidePreview();
         if (DataContext is MainWindowViewModel vm)
             vm.Shutdown();

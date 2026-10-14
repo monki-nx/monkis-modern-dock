@@ -25,4 +25,16 @@ public class WindowPreviewService
     public void Activate(WindowInfo windowInfo) => _windowQueryGateway.Activate(windowInfo);
 
     public void Close(WindowInfo windowInfo) => _windowQueryGateway.Close(windowInfo);
+
+    /// <summary>
+    /// Asks every open window of the executable to close (WM_CLOSE, like the
+    /// taskbar's "Close all windows"). Returns how many windows were asked.
+    /// </summary>
+    public int CloseAll(string? executablePath)
+    {
+        var windows = _windowQueryGateway.FindOpenWindows(executablePath);
+        foreach (var window in windows)
+            _windowQueryGateway.Close(window);
+        return windows.Count;
+    }
 }

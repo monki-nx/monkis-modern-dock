@@ -77,6 +77,12 @@ public static class Win32Constants
     // Shell hook notification codes
     public const int HSHELL_WINDOWACTIVATED = 4;
     public const int HSHELL_RUDEAPPACTIVATED = 0x8004;
+
+    // Virtual-key codes polled with GetAsyncKeyState
+    public const int VK_LBUTTON = 0x01;
+    public const int VK_RBUTTON = 0x02;
+    public const int VK_MBUTTON = 0x04;
+    public const int VK_ESCAPE = 0x1B;
 }
 
 /// <summary>Callback for EnumWindows.</summary>
@@ -223,6 +229,15 @@ public static class User32
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool GetCursorPos(out POINT lpPoint);
+
+    [DllImport("user32.dll")]
+    public static extern short GetAsyncKeyState(int vKey);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern ushort RegisterClass(WNDCLASS lpWndClass);

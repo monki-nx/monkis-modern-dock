@@ -90,20 +90,94 @@ public class DockItemActionServiceTest
         Assert.Equal("settings", capture.Kind);
     }
 
+    [Fact]
+    public void RunsProgramItemsAsAdministratorThroughProgramLauncher()
+    {
+        var capture = new InvocationCapture();
+        var service = new DockItemActionService(
+            LambdaProgramLauncher(capture),
+            LambdaFolderLauncher(capture),
+            LambdaWindowsModuleLauncher(capture)
+        );
+
+        bool handled = service.RunAsAdministrator(new DockProgramItemModel("Editor", @"C:\tools\editor.exe"));
+
+        Assert.True(handled);
+        Assert.Equal("elevated", capture.Kind);
+        Assert.Equal(@"C:\tools\editor.exe", capture.Value);
+        Assert.Equal("Editor", capture.Label);
+    }
+
+    [Fact]
+    public void DoesNotRunNonProgramItemsAsAdministrator()
+    {
+        var capture = new InvocationCapture();
+        var service = new DockItemActionService(
+            LambdaProgramLauncher(capture),
+            LambdaFolderLauncher(capture),
+            LambdaWindowsModuleLauncher(capture)
+        );
+
+        bool handled = service.RunAsAdministrator(new DockWindowsModuleItemModel("Control Panel", "ctrlpnl"));
+
+        Assert.False(handled);
+        Assert.Equal("", capture.Kind);
+    }
+
+    [Fact]
+    public void OpensFileLocationOfProgramAndFolderItems()
+    {
+        var capture = new InvocationCapture();
+        var service = new DockItemActionService(
+            LambdaProgramLauncher(capture),
+            LambdaFolderLauncher(capture),
+            LambdaWindowsModuleLauncher(capture)
+        );
+
+        service.OpenFileLocation(new DockProgramItemModel("Editor", @"C:\tools\editor.exe"));
+        Assert.Equal("location", capture.Kind);
+        Assert.Equal(@"C:\tools\editor.exe", capture.Value);
+
+        service.OpenFileLocation(new DockFolderItemModel("Projects", @"C:\Projects"));
+        Assert.Equal("location", capture.Kind);
+        Assert.Equal(@"C:\Projects", capture.Value);
+    }
+
+    [Fact]
+    public void OnlyProgramAndFolderItemsHaveAFileLocation()
+    {
+        Assert.True(DockItemActionService.HasFileLocation(new DockProgramItemModel("Editor", @"C:\tools\editor.exe")));
+        Assert.True(DockItemActionService.HasFileLocation(new DockFolderItemModel("Projects", @"C:\Projects")));
+        Assert.False(DockItemActionService.HasFileLocation(new DockWindowsModuleItemModel("Control Panel", "ctrlpnl")));
+        Assert.False(DockItemActionService.HasFileLocation(new DockSettingsItemModel()));
+    }
+
     // Small adapter wrappers so lambdas can be passed as interface parameters
     // (C# interfaces are not delegates, unlike Java functional interfaces).
     private static IProgramLauncher LambdaProgramLauncher(InvocationCapture c) =>
-        new ProgramLauncherImpl((path, label) => c.Record("program", path, label));
+        new ProgramLauncherImpl(c.Record);
     private static IFolderLauncher LambdaFolderLauncher(InvocationCapture c) =>
         new FolderLauncherImpl((path, label) => c.Record("folder", path, label));
     private static IWindowsModuleLauncher LambdaWindowsModuleLauncher(InvocationCapture c) =>
         new WindowsModuleLauncherImpl((module, label) => c.Record("module", module, label));
 
-    private sealed class ProgramLauncherImpl(Action<string, string> fn) : IProgramLauncher
+    private sealed class ProgramLauncherImpl(Action<string, string, string> record) : IProgramLauncher
     {
         public bool Launch(string executablePath, string label)
         {
-            fn(executablePath, label);
+            record("program", executablePath, label);
+            return true;
+        }
+
+        public bool LaunchAsAdministrator(string executablePath, string label)
+        {
+            record("elevated", executablePath, label);
+            return true;
+        }
+
+        public bool OpenFileLocation(string path)
+        {
+            record("location", path, "");
             return true;
         }
     }

@@ -269,6 +269,84 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    // --- Context-menu actions (right click on a dock item) ---
+
+    /// <summary>Launches the item exactly like a left click (taskbar: app name entry).</summary>
+    public void LaunchItem(DockItemViewModel itemVm) => ExecuteItem(itemVm);
+
+    /// <summary>Starts a new instance of an unpinned running app.</summary>
+    public void LaunchRunningApp(RunningAppViewModel app) =>
+        _appServices?.ItemActionService.Execute(
+            new DockProgramItemModel(app.Label, app.ExecutablePath), () => { });
+
+    public void RunAsAdministrator(DockItem item) =>
+        _appServices?.ItemActionService.RunAsAdministrator(item);
+
+    public void OpenFileLocation(DockItem item) =>
+        _appServices?.ItemActionService.OpenFileLocation(item);
+
+    /// <summary>
+    /// Open windows of the executable: their count drives the close entries and
+    /// the first one identifies the app for its jump list.
+    /// </summary>
+    public List<CedroModernDock.Core.Domain.WindowInfo> OpenWindows(string? executablePath)
+    {
+        if (_appServices == null || string.IsNullOrEmpty(executablePath)) return new();
+        try
+        {
+            return _appServices.WindowPreviewService.LoadPreview(
+                new DockProgramItemModel("", executablePath));
+        }
+        catch
+        {
+            return new();
+        }
+    }
+
+    public void CloseAllWindows(string? executablePath) =>
+        _appServices?.WindowPreviewService.CloseAll(executablePath);
+
+    /// <summary>Removes a pinned item from the dock. Returns true when the dock changed.</summary>
+    public bool UnpinItem(DockItemViewModel itemVm)
+    {
+        if (_appServices == null || !_appServices.DockService.UnpinItem(itemVm.Item)) return false;
+        UpdateDockUI();
+        return true;
+    }
+
+    /// <summary>
+    /// Pins an unpinned running app, labelled with the executable's file
+    /// description ("Windows Terminal") like the taskbar does. Returns true
+    /// when the dock changed.
+    /// </summary>
+    public bool PinRunningApp(RunningAppViewModel app)
+    {
+        if (_appServices == null) return false;
+        string label = ResolveProgramLabel(app.ExecutablePath, app.Label);
+        if (!_appServices.DockService.PinProgram(label, app.ExecutablePath)) return false;
+        UpdateDockUI();
+        // Drop it from the running section now instead of on the next watcher tick.
+        if (_runningAppsByPath.Remove(app.ExecutablePath))
+        {
+            RunningApps.Remove(app);
+            HasRunningApps = RunningApps.Count > 0;
+            RepositionAction?.Invoke();
+        }
+        return true;
+    }
+
+    private static string ResolveProgramLabel(string executablePath, string fallback)
+    {
+        try
+        {
+            string? description = System.Diagnostics.FileVersionInfo.GetVersionInfo(executablePath).FileDescription;
+            if (!string.IsNullOrWhiteSpace(description))
+                return description.Trim();
+        }
+        catch { /* unreadable version info: keep the file name */ }
+        return fallback;
+    }
+
     private void StartIndicatorWatcher()
     {
         _indicatorCts?.Cancel();
