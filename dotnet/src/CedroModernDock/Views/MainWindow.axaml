@@ -177,6 +177,29 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+
+            <!-- Clock, Windows 11 taskbar style: 24-hour time over the date,
+                 always last. Not a button, so pressing it drags the dock like
+                 its background does. The transparent background makes the
+                 whole block hit-testable for the tooltip. -->
+            <StackPanel x:Name="DockClock"
+                        Orientation="Vertical"
+                        VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Margin="4"
+                        Background="Transparent"
+                        ToolTip.Tip="{Binding ClockToolTip}">
+                <StackPanel.Styles>
+                    <Style Selector="TextBlock">
+                        <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+                        <Setter Property="FontSize" Value="{Binding ClockFontSize}" />
+                        <Setter Property="Foreground" Value="White" />
+                        <Setter Property="HorizontalAlignment" Value="Right" />
+                    </Style>
+                </StackPanel.Styles>
+                <TextBlock Text="{Binding ClockTime}" />
+                <TextBlock Text="{Binding ClockDate}" />
+            </StackPanel>
         </StackPanel>
     </Border>
 </Window>

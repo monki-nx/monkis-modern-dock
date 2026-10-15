@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -7,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia;
 using Avalonia.Media;
+using Avalonia.Threading;
 using CedroModernDock.Core.Application;
 using CedroModernDock.Core.Models;
 using CedroModernDock.Infrastructure.Windows.Native;
@@ -38,14 +40,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public bool HasRunningApps
     {
         get => _hasRunningApps;
-        private set
-        {
-            if (SetProperty(ref _hasRunningApps, value))
-            {
-                OnPropertyChanged(nameof(ShowHorizontalSeparator));
-                OnPropertyChanged(nameof(ShowVerticalSeparator));
-            }
-        }
+        private set => SetProperty(ref _hasRunningApps, value);
     }
 
     private bool _isVerticalDock;
@@ -67,17 +62,43 @@ public partial class MainWindowViewModel : ViewModelBase
     public Avalonia.Layout.Orientation DockOrientation
         => IsVerticalDock ? Avalonia.Layout.Orientation.Vertical : Avalonia.Layout.Orientation.Horizontal;
 
-    /// <summary>Separator is only shown between pinned items and displayed unpinned running apps.</summary>
-    public bool ShowHorizontalSeparator => HasRunningApps && !IsVerticalDock;
+    /// <summary>
+    /// Separator after the pinned items. Always shown: the clock sits right
+    /// of it, after the unpinned running apps when there are any.
+    /// </summary>
+    public bool ShowHorizontalSeparator => !IsVerticalDock;
 
-    /// <summary>Separator is only shown between pinned items and displayed unpinned running apps.</summary>
-    public bool ShowVerticalSeparator => HasRunningApps && IsVerticalDock;
+    /// <summary>Vertical-dock counterpart of <see cref="ShowHorizontalSeparator"/>.</summary>
+    public bool ShowVerticalSeparator => IsVerticalDock;
 
     public int IconsSize
     {
         get => _iconsSize;
-        set => SetProperty(ref _iconsSize, value);
+        set
+        {
+            if (SetProperty(ref _iconsSize, value))
+                OnPropertyChanged(nameof(ClockFontSize));
+        }
     }
+
+    // --- Clock (Windows 11 taskbar style) ---
+
+    private readonly DispatcherTimer _clockTimer = new();
+    private string _clockTime = "";
+    private string _clockDate = "";
+    private string _clockToolTip = "";
+
+    /// <summary>24-hour time, e.g. "14:05".</summary>
+    public string ClockTime { get => _clockTime; private set => SetProperty(ref _clockTime, value); }
+
+    /// <summary>Date as DD/MM/YYYY, e.g. "15/10/2026".</summary>
+    public string ClockDate { get => _clockDate; private set => SetProperty(ref _clockDate, value); }
+
+    /// <summary>Long date in the system culture, shown on hover like the taskbar clock.</summary>
+    public string ClockToolTip { get => _clockToolTip; private set => SetProperty(ref _clockToolTip, value); }
+
+    /// <summary>Scales with the icons (12 px at the default 48 px icons, as on the taskbar).</summary>
+    public double ClockFontSize => Math.Clamp(IconsSize / 4.0, 11, 18);
     public int Spacing { get => _spacing; set => SetProperty(ref _spacing, value); }
     public int BorderRounding
     {
@@ -106,6 +127,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public MainWindowViewModel()
     {
         LaunchCommand = new RelayCommand(_ => { });
+        UpdateClock();
     }
 
     public MainWindowViewModel(AppServices appServices)
@@ -113,6 +135,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _appServices = appServices;
         LaunchCommand = new RelayCommand(param => ExecuteItem(param));
         _appServices.LocalizationService.AddListener(UpdateDockUI);
+        UpdateClock();
     }
 
     public void Initialize()
@@ -121,6 +144,37 @@ public partial class MainWindowViewModel : ViewModelBase
         ApplyAppearance();
         UpdateDockUI();
         StartIndicatorWatcher();
+        StartClock();
+    }
+
+    private void StartClock()
+    {
+        _clockTimer.Tick += OnClockTick;
+        OnClockTick(null, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Refreshes the clock and schedules the next tick just past the next
+    /// second boundary: the minute flips on time, and a sleep/resume or a
+    /// system clock change is picked up within a second.
+    /// </summary>
+    private void OnClockTick(object? sender, EventArgs e)
+    {
+        UpdateClock();
+        _clockTimer.Stop();
+        _clockTimer.Interval = TimeSpan.FromMilliseconds(1000 - DateTime.Now.Millisecond + 20);
+        _clockTimer.Start();
+    }
+
+    /// <summary>Unchanged texts raise no PropertyChanged, so ticks within a minute cost no layout.</summary>
+    private void UpdateClock()
+    {
+        var now = DateTime.Now;
+        ClockTime = now.ToString("HH:mm", CultureInfo.InvariantCulture);
+        // Invariant culture: "/" in a format string is the culture's date
+        // separator, which is "-" in some locales (es-CL).
+        ClockDate = now.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+        ClockToolTip = now.ToString("D", CultureInfo.CurrentCulture);
     }
 
     public void UpdateDockUI()
@@ -582,5 +636,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _indicatorCts?.Cancel();
         _indicatorCts?.Dispose();
         _indicatorCts = null;
+        _clockTimer.Stop();
+        _clockTimer.Tick -= OnClockTick;
     }
 }
