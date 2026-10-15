@@ -73,6 +73,13 @@ public class CalendarViewModel : ViewModelBase
 
     public ICommand GoToTodayCommand { get; }
 
+    /// <summary>
+    /// Raised when the shown month (or year, in the year view) moves to a
+    /// later (+1) or earlier (-1) one, so the view can slide the change in.
+    /// Switching between the month and year views does not raise it.
+    /// </summary>
+    public event Action<int>? Navigated;
+
     /// <summary>Month title: opens the year view on the shown month's year.</summary>
     public ICommand ShowYearCommand { get; }
 
@@ -90,8 +97,12 @@ public class CalendarViewModel : ViewModelBase
         NextCommand = new RelayCommand(_ => Step(1));
         GoToTodayCommand = new RelayCommand(_ =>
         {
+            // From the year view this is a view switch; within the month view
+            // it moves toward today's month.
+            int direction = IsYearView ? 0 : _today.Year * 12 + _today.Month - (_month.Year * 12 + _month.Month);
             IsYearView = false;
             ShowMonth(_today);
+            RaiseNavigated(direction);
         });
         ShowYearCommand = new RelayCommand(_ =>
         {
@@ -140,7 +151,9 @@ public class CalendarViewModel : ViewModelBase
         _selected = date.Date;
         if (date.Year != _month.Year || date.Month != _month.Month)
         {
+            int direction = date < _month ? -1 : 1;
             ShowMonth(date);
+            RaiseNavigated(direction);
             return;
         }
         foreach (var day in Days)
@@ -160,6 +173,13 @@ public class CalendarViewModel : ViewModelBase
             ShowYear(_year + delta);
         else
             ShowMonth(_month.AddMonths(delta));
+        RaiseNavigated(delta);
+    }
+
+    private void RaiseNavigated(int direction)
+    {
+        if (direction != 0)
+            Navigated?.Invoke(Math.Sign(direction));
     }
 
     private void ShowMonth(DateTime month)

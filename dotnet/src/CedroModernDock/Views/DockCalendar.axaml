@@ -138,7 +138,7 @@
                             Command="{Binding PreviousCommand}">
                         <Path Classes="arrow" Data="M0,6 L5,0 L10,6 Z"/>
                     </Button>
-                    <Panel HorizontalAlignment="Left">
+                    <Panel x:Name="TitlePanel" HorizontalAlignment="Left">
                         <Button Classes="flat"
                                 Padding="6,4"
                                 IsVisible="{Binding IsMonthView}"
@@ -155,9 +155,10 @@
                 </DockPanel>
 
                 <!-- Both views stay in the layout (the hidden one transparent and
-                     not hit-testable), so switching never resizes the popup. -->
-                <Panel>
-                    <StackPanel Classes.hidden="{Binding IsYearView}">
+                     not hit-testable), so switching never resizes the popup.
+                     Clipped so the navigation slide stays inside the grid. -->
+                <Panel x:Name="Pages" ClipToBounds="True">
+                    <StackPanel x:Name="DaysPage" Classes.hidden="{Binding IsYearView}">
                         <ItemsControl ItemsSource="{Binding DayNames}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -212,7 +213,8 @@
                     </StackPanel>
 
                     <!-- Year view: the year's months, then 4 of the next year. -->
-                    <ItemsControl ItemsSource="{Binding Months}"
+                    <ItemsControl x:Name="YearPage"
+                                  ItemsSource="{Binding Months}"
                                   VerticalAlignment="Center"
                                   Classes.hidden="{Binding IsMonthView}">
                         <ItemsControl.ItemsPanel>

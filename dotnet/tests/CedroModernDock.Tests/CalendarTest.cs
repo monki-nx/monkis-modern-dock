@@ -257,4 +257,37 @@ public class CalendarViewModelTest
         calendar.Reset(Today);
         Assert.False(calendar.IsYearView);
     }
+
+    [Fact]
+    public void Navigated_ReportsTheDirectionOfEachStep()
+    {
+        var calendar = new CalendarViewModel(Today, English);
+        var steps = new List<int>();
+        calendar.Navigated += steps.Add;
+
+        calendar.NextCommand.Execute(null);      // November
+        calendar.PreviousCommand.Execute(null);  // October
+        calendar.Select(new DateTime(2026, 11, 2)); // padding day of November
+        calendar.GoToTodayCommand.Execute(null); // back to October
+        calendar.ShowYearCommand.Execute(null);  // view switch: no slide
+        calendar.NextCommand.Execute(null);      // 2027
+        calendar.SelectMonth(new DateTime(2027, 3, 1)); // view switch: no slide
+
+        Assert.Equal(new[] { 1, -1, 1, -1, 1 }, steps);
+    }
+
+    [Fact]
+    public void Navigated_IsNotRaisedWhenNothingMoves()
+    {
+        var calendar = new CalendarViewModel(Today, English);
+        var steps = new List<int>();
+        calendar.Navigated += steps.Add;
+
+        calendar.GoToTodayCommand.Execute(null);   // already on today's month
+        calendar.Select(new DateTime(2026, 10, 20)); // day of the shown month
+        calendar.ShowYearCommand.Execute(null);
+        calendar.GoToTodayCommand.Execute(null);   // from the year view: view switch
+
+        Assert.Empty(steps);
+    }
 }

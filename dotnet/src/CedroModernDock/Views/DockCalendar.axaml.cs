@@ -1,5 +1,11 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Animation;
+using Avalonia.Animation.Easings;
 using Avalonia.Controls;
+using Avalonia.Styling;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -17,6 +23,88 @@ public partial class DockCalendar : UserControl
         // Grayscale antialiasing, as in the context menu: ClearType leaves a
         // dark fringe around the letters over the transparent acrylic.
         RenderOptions.SetTextRenderingMode(this, TextRenderingMode.Antialias);
+    }
+
+    private CalendarViewModel? _calendar;
+
+    protected override void OnDataContextChanged(EventArgs e)
+    {
+        base.OnDataContextChanged(e);
+        if (_calendar != null) _calendar.Navigated -= OnNavigated;
+        _calendar = DataContext as CalendarViewModel;
+        if (_calendar != null) _calendar.Navigated += OnNavigated;
+    }
+
+    // --- Navigation slide ---
+
+    private static readonly TimeSpan SlideDuration = TimeSpan.FromMilliseconds(200);
+    private const double PageSlide = 28;
+    private const double TitleSlide = 8;
+    private CancellationTokenSource? _slideCts;
+
+    /// <summary>
+    /// Slides the new month (or year) in, like the taskbar calendar scrolls:
+    /// a later one rises from below, an earlier one comes down from above.
+    /// The title moves too, so the change reads even without looking at the
+    /// number. A new step cancels the running slide (fast wheel scrolling).
+    /// </summary>
+    private void OnNavigated(int direction)
+    {
+        _slideCts?.Cancel();
+        _slideCts = new CancellationTokenSource();
+        var token = _slideCts.Token;
+        Visual page = _calendar?.IsYearView == true ? YearPage : DaysPage;
+        _ = SlideIn(page, direction * PageSlide, token);
+        _ = SlideIn(TitlePanel, direction * TitleSlide, token);
+    }
+
+    /// <summary>
+    /// Code-built keyframe animations have no animator for RenderTransform
+    /// itself; the offset animates TranslateTransform.Y instead, which
+    /// Avalonia's transform animator applies to the target's RenderTransform
+    /// (so the animation runs on the visual, not on the transform). The slide
+    /// is decoration: it must never take the dock down, so failures are
+    /// swallowed.
+    /// </summary>
+    private static async Task SlideIn(Visual target, double fromY, CancellationToken token)
+    {
+        try
+        {
+            if (target.RenderTransform is not TranslateTransform)
+                target.RenderTransform = new TranslateTransform();
+
+            var animation = new Animation
+            {
+                Duration = SlideDuration,
+                Easing = new CubicEaseOut(),
+                Children =
+                {
+                    new KeyFrame
+                    {
+                        Cue = new Cue(0),
+                        Setters =
+                        {
+                            new Setter(TranslateTransform.YProperty, fromY),
+                            new Setter(Visual.OpacityProperty, 0.25)
+                        }
+                    },
+                    new KeyFrame
+                    {
+                        Cue = new Cue(1),
+                        Setters =
+                        {
+                            new Setter(TranslateTransform.YProperty, 0.0),
+                            new Setter(Visual.OpacityProperty, 1.0)
+                        }
+                    }
+                }
+            };
+            await animation.RunAsync(target, token);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"DockCalendar: slide failed: {ex.Message}");
+        }
     }
 
     /// <summary>
