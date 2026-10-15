@@ -80,6 +80,13 @@ public class DockModel
     [JsonPropertyName("showUnpinnedRunningApps")]
     public bool ShowUnpinnedRunningApps { get; set; } = true;
 
+    /// <summary>
+    /// Show the badges apps publish for their taskbar buttons (unread counts,
+    /// overlay icons) on the dock icons, like Windows' "Show badges on taskbar apps".
+    /// </summary>
+    [JsonPropertyName("showTaskbarBadges")]
+    public bool ShowTaskbarBadges { get; set; } = true;
+
     [JsonPropertyName("verticalDock")]
     public bool VerticalDock { get; set; }
 

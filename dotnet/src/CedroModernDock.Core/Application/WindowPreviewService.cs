@@ -16,8 +16,12 @@ public class WindowPreviewService
     public List<WindowInfo> LoadPreview(DockProgramItemModel item) =>
         _windowQueryGateway.FindOpenWindows(item.ExecutablePath, item.Label);
 
+    /// <summary>Open windows of a program, topmost first.</summary>
+    public List<WindowInfo> FindOpenWindows(string? executablePath, string? label = null) =>
+        _windowQueryGateway.FindOpenWindows(executablePath, label);
+
     public bool HasOpenWindows(string? executablePath, string? label = null) =>
-        _windowQueryGateway.FindOpenWindows(executablePath, label).Count > 0;
+        FindOpenWindows(executablePath, label).Count > 0;
 
     public List<RunningWindowInfo> FindTaskbarWindows() =>
         _windowQueryGateway.FindTaskbarWindows();

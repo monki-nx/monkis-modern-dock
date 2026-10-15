@@ -68,6 +68,14 @@ public class DockAppearanceService
         _dockService.SaveChanges();
     }
 
+    public bool GetShowTaskbarBadges() => GetDock().ShowTaskbarBadges;
+
+    public void SetShowTaskbarBadges(bool value)
+    {
+        GetDock().ShowTaskbarBadges = value;
+        _dockService.SaveChanges();
+    }
+
     public bool GetVerticalDock() => GetDock().VerticalDock;
 
     public void SetVerticalDock(bool value)

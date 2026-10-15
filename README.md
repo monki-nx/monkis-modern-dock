@@ -47,6 +47,18 @@
 - It shares the context menu's look and acrylic slider, and never spans more than half the dock.
   Day and month names and the first day of the week follow the Windows regional settings.
 
+### Taskbar badges
+- Dock icons show the **badges apps put on their taskbar buttons**, like Windows' "Show badges on
+  taskbar apps": the overlay icon of desktop apps (Outlook, Teams, Slack, Discord...) and the unread
+  count or glyph of packaged apps (WhatsApp, Mail...). Hovering the icon shows the badge's text
+  ("5 unread messages"). A new setting turns them off.
+- Overlays are read by taking over the taskbar's `TaskbandHWND` property and forwarding every
+  message to Explorer, so the Windows taskbar keeps its overlays, progress bars and thumbnail
+  buttons; the property is handed back when the dock exits or the setting is turned off. Badges of
+  packaged apps are read from the notification database through Windows' own `winsqlite3.dll`.
+- Known limit: an app that set up its taskbar connection *before* the dock started and keeps
+  reusing it only reaches Explorer, so its overlay shows on the dock after the app restarts.
+
 ### Installing this fork
 The official installer below does not include these changes. Build this fork from source instead
 (requires the .NET 9 SDK or later):

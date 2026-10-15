@@ -33,6 +33,31 @@ public class DockItemViewModel : ViewModelBase
         set => SetProperty(ref _isRunning, value);
     }
 
+    private TaskbarBadge? _badgeSource;
+    private DockBadgeViewModel? _badge;
+
+    /// <summary>The taskbar badge the app shows (overlay icon, count or glyph), or null.</summary>
+    public DockBadgeViewModel? Badge
+    {
+        get => _badge;
+        private set
+        {
+            if (SetProperty(ref _badge, value))
+                OnPropertyChanged(nameof(ToolTipText));
+        }
+    }
+
+    /// <summary>Label plus the badge's description ("Outlook — 5 unread messages").</summary>
+    public string ToolTipText => Badge?.ToolTip is string detail ? $"{Label} — {detail}" : Label;
+
+    /// <summary>Shows <paramref name="badge"/>; an unchanged badge touches nothing.</summary>
+    public void SetBadge(TaskbarBadge? badge)
+    {
+        if (Equals(badge, _badgeSource)) return;
+        _badgeSource = badge;
+        Badge = badge == null ? null : DockBadgeViewModel.From(badge, IconSize);
+    }
+
     /// <summary>True if this item should show a running-app indicator (program items only).</summary>
     public bool ShowIndicator { get; }
 

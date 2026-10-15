@@ -25,6 +25,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly AppServices? _appServices;
     private CancellationTokenSource? _indicatorCts;
 
+    // Wakes the indicator watcher early when an app changes its taskbar badge.
+    private readonly SemaphoreSlim _refreshSignal = new(0, 1);
+
     private int _iconsSize = 48;
     private int _spacing = 5;
     private int _borderRounding = 12;
@@ -138,6 +141,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _appServices = appServices;
         LaunchCommand = new RelayCommand(param => ExecuteItem(param));
         _appServices.LocalizationService.AddListener(UpdateDockUI);
+        _appServices.BadgeService.BadgesChanged += OnBadgesChanged;
         UpdateClock();
     }
 
@@ -192,6 +196,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IconTinter.ActiveColor = appearance.GetTintIcons()
             ? ParseRgbColor(appearance.GetTintColorRGB())
             : null;
+        UpdateBadgeWatcher();
         Items.Clear();
         var dock = _appServices.DockService.GetDock();
         var loc = _appServices.LocalizationService;
@@ -208,6 +213,8 @@ public partial class MainWindowViewModel : ViewModelBase
         ApplyAppearance();
         RepositionAction?.Invoke();
         PreviewDismissAction?.Invoke();
+        // The new item view models start without badges.
+        OnBadgesChanged();
     }
     // --- continued below ---
 
@@ -443,7 +450,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 {
                     RefreshIndicators();
                     RefreshRunningApps();
-                    await Task.Delay(1200, token);
+                    await _refreshSignal.WaitAsync(1200, token);
                 }
                 catch (OperationCanceledException) { break; }
                 catch { /* keep watching */ }
@@ -454,11 +461,47 @@ public partial class MainWindowViewModel : ViewModelBase
     private void RefreshIndicators()
     {
         if (_appServices == null) return;
+        bool showBadges = _appServices.AppearanceService.GetShowTaskbarBadges();
         var programItems = Items.Where(i => i.ShowIndicator && i.ExecutablePath != null).ToList();
         foreach (var item in programItems)
         {
-            bool isOpen = _appServices.WindowPreviewService.HasOpenWindows(item.ExecutablePath, item.Label);
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => item.IsRunning = isOpen);
+            var windows = _appServices.WindowPreviewService.FindOpenWindows(item.ExecutablePath, item.Label);
+            bool isOpen = windows.Count > 0;
+            // Packaged apps keep their badge while closed, as on the taskbar.
+            TaskbarBadge? badge = showBadges
+                ? _appServices.BadgeService.BadgeFor(
+                    windows.Select(w => w.Handle),
+                    _appServices.WindowPreviewService.AppIdsOf(item.ExecutablePath!, item.Label))
+                : null;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                item.IsRunning = isOpen;
+                item.SetBadge(badge);
+            });
+        }
+    }
+
+    /// <summary>Runs the badge listeners only while the setting is on.</summary>
+    private void UpdateBadgeWatcher()
+    {
+        if (_appServices == null) return;
+        try
+        {
+            if (_appServices.AppearanceService.GetShowTaskbarBadges())
+                _appServices.BadgeService.Start();
+            else
+                _appServices.BadgeService.Stop();
+        }
+        catch { /* badges are best-effort; the dock works without them */ }
+    }
+
+    /// <summary>Called on any thread: refreshes indicators and badges right away.</summary>
+    private void OnBadgesChanged()
+    {
+        if (_refreshSignal.CurrentCount == 0)
+        {
+            try { _refreshSignal.Release(); }
+            catch (SemaphoreFullException) { /* a refresh is already pending */ }
         }
     }
 
@@ -512,11 +555,22 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var desired = windows
+        var groups = windows
             .GroupBy(w => w.ExecutablePath, StringComparer.OrdinalIgnoreCase)
             .Where(g => !IsPinned(g.Key, pinnedPaths)
                 && !g.Any(w => w.AppId != null && pinnedAppIds.Contains(w.AppId)))
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            .ToList();
+        var desired = groups.ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        bool showBadges = _appServices.AppearanceService.GetShowTaskbarBadges();
+        var badges = groups.ToDictionary(
+            g => g.Key,
+            g => showBadges
+                ? _appServices.BadgeService.BadgeFor(
+                    g.Select(w => w.Handle),
+                    g.Select(w => w.AppId).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
+                : null,
+            StringComparer.OrdinalIgnoreCase);
 
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
@@ -548,6 +602,12 @@ public partial class MainWindowViewModel : ViewModelBase
                 _runningAppsByPath[path] = vm;
                 RunningApps.Add(vm);
                 changed = true;
+            }
+
+            foreach (var (path, badge) in badges)
+            {
+                if (_runningAppsByPath.TryGetValue(path, out var app))
+                    app.SetBadge(badge);
             }
 
             if (changed)
@@ -636,7 +696,11 @@ public partial class MainWindowViewModel : ViewModelBase
     public void Shutdown()
     {
         if (_appServices != null)
+        {
             _appServices.LocalizationService.RemoveListener(UpdateDockUI);
+            _appServices.BadgeService.BadgesChanged -= OnBadgesChanged;
+            _appServices.BadgeService.Stop();
+        }
         _indicatorCts?.Cancel();
         _indicatorCts?.Dispose();
         _indicatorCts = null;

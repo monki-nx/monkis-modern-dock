@@ -49,7 +49,7 @@
                                     BorderBrush="Transparent"
                                     Padding="4"
                                     Cursor="Hand"
-                                    ToolTip.Tip="{Binding Label}"
+                                    ToolTip.Tip="{Binding ToolTipText}"
                                     RenderTransformOrigin="50%, 50%"
                                     PointerEntered="OnItemPointerEntered"
                                     PointerExited="OnItemPointerExited"
@@ -85,14 +85,17 @@
                                     </Style>
                                 </Button.Styles>
 
-                                <!-- Item content: icon + running indicator -->
+                                <!-- Item content: icon + badge + running indicator -->
                                 <StackPanel Orientation="Vertical" Spacing="3"
                                             HorizontalAlignment="Center">
-                                    <Image Source="{Binding Icon}"
-                                           Width="{Binding IconSize}"
-                                           Height="{Binding IconSize}"
-                                           Stretch="Uniform"
-                                           RenderOptions.BitmapInterpolationMode="HighQuality" />
+                                    <Panel Width="{Binding IconSize}" Height="{Binding IconSize}">
+                                        <Image Source="{Binding Icon}"
+                                               Stretch="Uniform"
+                                               RenderOptions.BitmapInterpolationMode="HighQuality" />
+                                        <!-- Taskbar badge (overlay icon, count or glyph) -->
+                                        <views:DockBadgeView DataContext="{Binding Badge}"
+                                                             IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    </Panel>
                                     <Ellipse Width="4" Height="4"
                                              Fill="White"
                                              IsVisible="{Binding IsRunning}" />
@@ -134,7 +137,7 @@
                                     BorderBrush="Transparent"
                                     Padding="4"
                                     Cursor="Hand"
-                                    ToolTip.Tip="{Binding Label}"
+                                    ToolTip.Tip="{Binding ToolTipText}"
                                     RenderTransformOrigin="50%, 50%"
                                     Click="OnRunningAppClicked"
                                     PointerEntered="OnRunningAppPointerEntered"
@@ -163,14 +166,17 @@
                                     </Style>
                                 </Button.Styles>
 
-                                <!-- Item content: icon + running indicator -->
+                                <!-- Item content: icon + badge + running indicator -->
                                 <StackPanel Orientation="Vertical" Spacing="3"
                                             HorizontalAlignment="Center">
-                                    <Image Source="{Binding Icon}"
-                                           Width="{Binding IconSize}"
-                                           Height="{Binding IconSize}"
-                                           Stretch="Uniform"
-                                           RenderOptions.BitmapInterpolationMode="HighQuality" />
+                                    <Panel Width="{Binding IconSize}" Height="{Binding IconSize}">
+                                        <Image Source="{Binding Icon}"
+                                               Stretch="Uniform"
+                                               RenderOptions.BitmapInterpolationMode="HighQuality" />
+                                        <!-- Taskbar badge (overlay icon, count or glyph) -->
+                                        <views:DockBadgeView DataContext="{Binding Badge}"
+                                                             IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    </Panel>
                                     <Ellipse Width="4" Height="4"
                                              Fill="White"
                                              IsVisible="{Binding IsRunning}" />

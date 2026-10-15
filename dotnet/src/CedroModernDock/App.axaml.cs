@@ -180,7 +180,8 @@ public partial class App : Application
             WindowPreviewService: new WindowPreviewService(new Win32WindowQueryGateway(appIds)),
             IconGateway: new CachedWindowsIconGateway(),
             LocalizationService: new LocalizationService(dockService),
-            JumpListService: new JumpListService(jumpListGateway)
+            JumpListService: new JumpListService(jumpListGateway),
+            BadgeService: new TaskbarBadgeService(new WindowsTaskbarBadgeGateway())
         );
     }
 

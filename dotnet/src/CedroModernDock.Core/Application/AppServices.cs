@@ -15,5 +15,6 @@ public sealed record AppServices(
     WindowPreviewService WindowPreviewService,
     IIconGateway IconGateway,
     LocalizationService LocalizationService,
-    JumpListService JumpListService
+    JumpListService JumpListService,
+    TaskbarBadgeService BadgeService
 );

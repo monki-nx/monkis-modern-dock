@@ -1,0 +1,34 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CedroModernDock.ViewModels"
+             x:Class="CedroModernDock.Views.DockBadgeView"
+             x:DataType="vm:DockBadgeViewModel"
+             HorizontalAlignment="Right"
+             VerticalAlignment="Bottom"
+             IsHitTestVisible="False">
+    <!-- One of the three is visible: overlay icon, count pill or glyph dot. -->
+    <Panel>
+        <Image Source="{Binding Overlay}"
+               Width="{Binding Size}" Height="{Binding Size}"
+               Stretch="Uniform"
+               IsVisible="{Binding ShowOverlay}"
+               RenderOptions.BitmapInterpolationMode="HighQuality" />
+        <Border IsVisible="{Binding ShowCount}"
+                Background="#D13438"
+                BorderBrush="#40000000" BorderThickness="1"
+                CornerRadius="{Binding PillRadius}"
+                MinWidth="{Binding Size}" Height="{Binding Size}"
+                Padding="3,0">
+            <TextBlock Text="{Binding Text}"
+                       FontSize="{Binding FontSize}"
+                       FontWeight="SemiBold"
+                       Foreground="White"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center" />
+        </Border>
+        <Ellipse IsVisible="{Binding ShowDot}"
+                 Width="{Binding DotSize}" Height="{Binding DotSize}"
+                 Fill="#D13438"
+                 Stroke="#40000000" StrokeThickness="1" />
+    </Panel>
+</UserControl>

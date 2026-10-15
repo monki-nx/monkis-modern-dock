@@ -222,6 +222,7 @@ public partial class SettingsViewModel : ViewModelBase
     public string AcknowledgementsText => T("settings.general.acknowledgements");
     public string StartWithWindowsText => T("settings.general.startWithWindows");
     public string ShowUnpinnedRunningAppsText => T("settings.general.showUnpinnedRunningApps");
+    public string ShowTaskbarBadgesText => T("settings.general.showTaskbarBadges");
     public string ArrangeVerticalText => T("settings.general.arrangeVertical");
     public string CustomColorText => T("settings.customColor");
 
@@ -230,6 +231,13 @@ public partial class SettingsViewModel : ViewModelBase
     {
         get => _isAutoStartEnabled;
         set => SetProperty(ref _isAutoStartEnabled, value);
+    }
+
+    private bool _showTaskbarBadges = true;
+    public bool ShowTaskbarBadges
+    {
+        get => _showTaskbarBadges;
+        set => SetProperty(ref _showTaskbarBadges, value);
     }
 
     private bool _showUnpinnedRunningApps = true;
@@ -284,6 +292,7 @@ public partial class SettingsViewModel : ViewModelBase
         SelectedLanguage = _appServices.LocalizationService.GetCurrentLanguage();
         IsAutoStartEnabled = Infrastructure.Windows.Adapters.AutoStartHelper.IsAutoStartEnabled();
         ShowUnpinnedRunningApps = app.GetShowUnpinnedRunningApps();
+        ShowTaskbarBadges = app.GetShowTaskbarBadges();
         IsVerticalDock = app.GetVerticalDock();
         _isInitialized = true;
     }
@@ -308,6 +317,7 @@ public partial class SettingsViewModel : ViewModelBase
             case nameof(SelectedLanguage): OnLanguageChanged(SelectedLanguage); break;
             case nameof(IsAutoStartEnabled): OnAutoStartChanged(); break;
             case nameof(ShowUnpinnedRunningApps): OnShowUnpinnedRunningAppsChanged(); break;
+            case nameof(ShowTaskbarBadges): OnShowTaskbarBadgesChanged(); break;
             case nameof(IsVerticalDock): OnVerticalDockChanged(); break;
             case nameof(IsStaticMode): OnPositioningModeChanged(); break;
             case nameof(VerticalAnchor): OnVerticalAnchorChanged(); break;
@@ -348,6 +358,12 @@ public partial class SettingsViewModel : ViewModelBase
             Infrastructure.Windows.Adapters.AutoStartHelper.EnableAutoStart();
         else
             Infrastructure.Windows.Adapters.AutoStartHelper.DisableAutoStart();
+    }
+
+    public void OnShowTaskbarBadgesChanged()
+    {
+        _appServices.AppearanceService.SetShowTaskbarBadges(ShowTaskbarBadges);
+        _dockRefreshAction();
     }
 
     public void OnShowUnpinnedRunningAppsChanged()

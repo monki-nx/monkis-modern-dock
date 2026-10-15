@@ -335,6 +335,8 @@
                         <CheckBox Content="{Binding StartWithWindowsText}" IsChecked="{Binding IsAutoStartEnabled}" Foreground="#CCCCCC" Margin="0,8,0,0"/>
                         <CheckBox Content="{Binding ShowUnpinnedRunningAppsText}"
                                   IsChecked="{Binding ShowUnpinnedRunningApps}" Foreground="#CCCCCC" Margin="0,8,0,0"/>
+                        <CheckBox Content="{Binding ShowTaskbarBadgesText}"
+                                  IsChecked="{Binding ShowTaskbarBadges}" Foreground="#CCCCCC" Margin="0,8,0,0"/>
                         <CheckBox Content="{Binding ArrangeVerticalText}"
                                   IsChecked="{Binding IsVerticalDock}" Foreground="#CCCCCC" Margin="0,8,0,0"/>
                         <Button Content="{Binding AcknowledgementsText}" Click="OnAcknowledgements"

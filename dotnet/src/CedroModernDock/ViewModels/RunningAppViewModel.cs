@@ -1,4 +1,5 @@
 using Avalonia.Media.Imaging;
+using CedroModernDock.Core.Models;
 
 namespace CedroModernDock.ViewModels;
 
@@ -41,7 +42,36 @@ public class RunningAppViewModel : ViewModelBase
     public int IconSize
     {
         get => _iconSize;
-        set => SetProperty(ref _iconSize, value);
+        set
+        {
+            if (SetProperty(ref _iconSize, value) && _badgeSource != null)
+                Badge = DockBadgeViewModel.From(_badgeSource, value);
+        }
+    }
+
+    private TaskbarBadge? _badgeSource;
+    private DockBadgeViewModel? _badge;
+
+    /// <summary>The taskbar badge the app shows (overlay icon, count or glyph), or null.</summary>
+    public DockBadgeViewModel? Badge
+    {
+        get => _badge;
+        private set
+        {
+            if (SetProperty(ref _badge, value))
+                OnPropertyChanged(nameof(ToolTipText));
+        }
+    }
+
+    /// <summary>Label plus the badge's description ("Outlook — 5 unread messages").</summary>
+    public string ToolTipText => Badge?.ToolTip is string detail ? $"{Label} — {detail}" : Label;
+
+    /// <summary>Shows <paramref name="badge"/>; an unchanged badge touches nothing.</summary>
+    public void SetBadge(TaskbarBadge? badge)
+    {
+        if (Equals(badge, _badgeSource)) return;
+        _badgeSource = badge;
+        Badge = badge == null ? null : DockBadgeViewModel.From(badge, IconSize);
     }
 
     public RunningAppViewModel(string executablePath, string label)
