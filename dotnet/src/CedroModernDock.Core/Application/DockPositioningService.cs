@@ -85,6 +85,14 @@ public class DockPositioningService
 
     public bool IsDynamicPositioning() => GetPositioningMode() == DockPositioningMode.DYNAMIC;
 
+    public bool GetReserveScreenSpace() => _dockService.GetDock().ReserveScreenSpace;
+
+    public void SetReserveScreenSpace(bool value)
+    {
+        _dockService.GetDock().ReserveScreenSpace = value;
+        _dockService.SaveChanges();
+    }
+
     /// <summary>
     /// Computes the dock's screen position based on the current positioning mode.
     /// Returns (x, y) in device pixels.
@@ -99,7 +107,11 @@ public class DockPositioningService
         if (_screenBoundsProvider == null)
             return (0, 0);
 
-        var bounds = _screenBoundsProvider.GetPrimaryScreenBounds();
+        // Anchor to the screen the dock was last placed on (its saved center),
+        // not always the primary one; a point on no screen falls back to the
+        // nearest screen.
+        var bounds = _screenBoundsProvider.GetScreenBoundsAt(
+            dock.DockPositionX + windowWidth / 2, dock.DockPositionY + windowHeight / 2);
         double x = SnapToPixel(ResolveHorizontalPosition(bounds, windowWidth, dock));
         double y = SnapToPixel(ResolveVerticalPosition(bounds, windowHeight, dock));
         return (x, y);

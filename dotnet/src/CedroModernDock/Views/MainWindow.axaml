@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:CedroModernDock.ViewModels"
+        xmlns:views="using:CedroModernDock.Views"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="500" d:DesignHeight="80"
@@ -21,158 +22,210 @@
         <vm:MainWindowViewModel/>
     </Design.DataContext>
 
-    <!-- Dock bar: rounded background with items -->
-    <Border x:Name="DockBar"
-            Background="{Binding DockBackground}"
-            CornerRadius="{Binding DockCornerRadius}"
-            Padding="10"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center"
-            ClipToBounds="True">
+    <Panel>
+        <!-- Dock bar: rounded background with items -->
+        <Border x:Name="DockBar"
+                Background="{Binding DockBackground}"
+                CornerRadius="{Binding DockCornerRadius}"
+                Padding="10"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                ClipToBounds="True">
 
-        <StackPanel Orientation="{Binding DockOrientation}" Spacing="{Binding Spacing}">
-            <!-- Pinned dock items -->
-            <ItemsControl ItemsSource="{Binding Items}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Orientation="{Binding DockOrientation}" Spacing="{Binding Spacing}" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
+            <StackPanel Orientation="{Binding DockOrientation}" Spacing="{Binding Spacing}">
+                <!-- Pinned dock items -->
+                <ItemsControl ItemsSource="{Binding Items}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="{Binding DockOrientation}" Spacing="{Binding Spacing}" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
 
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:DockItemViewModel">
-                        <Button Command="{Binding ClickCommand}"
-                                CommandParameter="{Binding}"
-                                Background="Transparent"
-                                BorderBrush="Transparent"
-                                Padding="4"
-                                Cursor="Hand"
-                                ToolTip.Tip="{Binding Label}"
-                                RenderTransformOrigin="50%, 50%"
-                                PointerEntered="OnItemPointerEntered"
-                                PointerExited="OnItemPointerExited">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:DockItemViewModel">
+                            <Button Command="{Binding ClickCommand}"
+                                    CommandParameter="{Binding}"
+                                    Background="Transparent"
+                                    BorderBrush="Transparent"
+                                    Padding="4"
+                                    Cursor="Hand"
+                                    ToolTip.Tip="{Binding Label}"
+                                    RenderTransformOrigin="50%, 50%"
+                                    PointerEntered="OnItemPointerEntered"
+                                    PointerExited="OnItemPointerExited"
+                                    ContextRequested="OnItemContextRequested"
+                                    PointerReleased="OnItemPointerReleased">
 
-                            <!-- Hover scale animation. Both scale states come from styles:
-                                 a local RenderTransform would win over the :pointerover
-                                 style setter and disable the effect. scale(n) parses to
-                                 TransformOperations, which TransformOperationsTransition
-                                 animates smoothly. -->
-                            <Button.Transitions>
-                                <Transitions>
-                                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" />
-                                </Transitions>
-                            </Button.Transitions>
+                                <!-- Hover scale animation. Both scale states come from styles:
+                                     a local RenderTransform would win over the :pointerover
+                                     style setter and disable the effect. scale(n) parses to
+                                     TransformOperations, which TransformOperationsTransition
+                                     animates smoothly. -->
+                                <Button.Transitions>
+                                    <Transitions>
+                                        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" />
+                                    </Transitions>
+                                </Button.Transitions>
 
-                            <Button.Styles>
-                                <Style Selector="Button">
-                                    <Setter Property="RenderTransform" Value="scale(1)" />
-                                </Style>
-                                <Style Selector="Button:pointerover">
-                                    <Setter Property="RenderTransform" Value="scale(1.3)" />
-                                </Style>
-                                <!-- The Fluent theme paints a gray hover/pressed background
-                                     on the button's template part; dock items must stay
-                                     background-free (scoped styles override the theme). -->
-                                <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-                                    <Setter Property="Background" Value="Transparent" />
-                                </Style>
-                                <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
-                                    <Setter Property="Background" Value="Transparent" />
-                                </Style>
-                            </Button.Styles>
+                                <Button.Styles>
+                                    <Style Selector="Button">
+                                        <Setter Property="RenderTransform" Value="scale(1)" />
+                                    </Style>
+                                    <Style Selector="Button:pointerover">
+                                        <Setter Property="RenderTransform" Value="scale(1.3)" />
+                                    </Style>
+                                    <!-- The Fluent theme paints a gray hover/pressed background
+                                         on the button's template part; dock items must stay
+                                         background-free (scoped styles override the theme). -->
+                                    <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                                        <Setter Property="Background" Value="Transparent" />
+                                    </Style>
+                                    <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                                        <Setter Property="Background" Value="Transparent" />
+                                    </Style>
+                                </Button.Styles>
 
-                            <!-- Item content: icon + running indicator -->
-                            <StackPanel Orientation="Vertical" Spacing="3"
-                                        HorizontalAlignment="Center">
-                                <Image Source="{Binding Icon}"
-                                       Width="{Binding IconSize}"
-                                       Height="{Binding IconSize}"
-                                       Stretch="Uniform"
-                                       RenderOptions.BitmapInterpolationMode="HighQuality" />
-                                <Ellipse Width="4" Height="4"
-                                         Fill="White"
-                                         IsVisible="{Binding IsRunning}" />
-                            </StackPanel>
-                        </Button>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                                <!-- Item content: icon + running indicator -->
+                                <StackPanel Orientation="Vertical" Spacing="3"
+                                            HorizontalAlignment="Center">
+                                    <Image Source="{Binding Icon}"
+                                           Width="{Binding IconSize}"
+                                           Height="{Binding IconSize}"
+                                           Stretch="Uniform"
+                                           RenderOptions.BitmapInterpolationMode="HighQuality" />
+                                    <Ellipse Width="4" Height="4"
+                                             Fill="White"
+                                             IsVisible="{Binding IsRunning}" />
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
 
-            <!-- Separator between pinned items and running apps -->
-            <Image Source="/Assets/icons/open-softwares-separator-1.png"
-                   Width="14" Height="{Binding IconsSize}"
-                   Stretch="Uniform"
-                   VerticalAlignment="Center"
-                   Margin="4,0"
-                   IsVisible="{Binding ShowHorizontalSeparator}"
-                   RenderOptions.BitmapInterpolationMode="HighQuality"/>
-            <Image Source="/Assets/icons/open-softwares-separator-2.png"
-                   Width="{Binding IconsSize}" Height="14"
-                   Stretch="Uniform"
-                   VerticalAlignment="Center"
-                   HorizontalAlignment="Center"
-                   Margin="0,4"
-                   IsVisible="{Binding ShowVerticalSeparator}"
-                   RenderOptions.BitmapInterpolationMode="HighQuality"/>
+                <!-- Separator between pinned items and running apps -->
+                <Image Source="/Assets/icons/open-softwares-separator-1.png"
+                       Width="14" Height="{Binding IconsSize}"
+                       Stretch="Uniform"
+                       VerticalAlignment="Center"
+                       Margin="4,0"
+                       IsVisible="{Binding ShowHorizontalSeparator}"
+                       RenderOptions.BitmapInterpolationMode="HighQuality"/>
+                <Image Source="/Assets/icons/open-softwares-separator-2.png"
+                       Width="{Binding IconsSize}" Height="14"
+                       Stretch="Uniform"
+                       VerticalAlignment="Center"
+                       HorizontalAlignment="Center"
+                       Margin="0,4"
+                       IsVisible="{Binding ShowVerticalSeparator}"
+                       RenderOptions.BitmapInterpolationMode="HighQuality"/>
 
-            <!-- Running-but-unpinned apps (taskbar-like) -->
-            <ItemsControl ItemsSource="{Binding RunningApps}"
-                          IsVisible="{Binding HasRunningApps}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Orientation="{Binding DockOrientation}" Spacing="{Binding Spacing}" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
+                <!-- Running-but-unpinned apps (taskbar-like) -->
+                <ItemsControl ItemsSource="{Binding RunningApps}"
+                              IsVisible="{Binding HasRunningApps}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="{Binding DockOrientation}" Spacing="{Binding Spacing}" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
 
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:RunningAppViewModel">
-                        <Button Background="Transparent"
-                                BorderBrush="Transparent"
-                                Padding="4"
-                                Cursor="Hand"
-                                ToolTip.Tip="{Binding Label}"
-                                RenderTransformOrigin="50%, 50%"
-                                Click="OnRunningAppClicked"
-                                PointerEntered="OnRunningAppPointerEntered"
-                                PointerExited="OnItemPointerExited">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:RunningAppViewModel">
+                            <Button Background="Transparent"
+                                    BorderBrush="Transparent"
+                                    Padding="4"
+                                    Cursor="Hand"
+                                    ToolTip.Tip="{Binding Label}"
+                                    RenderTransformOrigin="50%, 50%"
+                                    Click="OnRunningAppClicked"
+                                    PointerEntered="OnRunningAppPointerEntered"
+                                    PointerExited="OnItemPointerExited"
+                                    ContextRequested="OnRunningAppContextRequested"
+                                    PointerReleased="OnRunningAppPointerReleased">
 
-                            <Button.Transitions>
-                                <Transitions>
-                                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" />
-                                </Transitions>
-                            </Button.Transitions>
+                                <Button.Transitions>
+                                    <Transitions>
+                                        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" />
+                                    </Transitions>
+                                </Button.Transitions>
 
-                            <Button.Styles>
-                                <Style Selector="Button">
-                                    <Setter Property="RenderTransform" Value="scale(1)" />
-                                </Style>
-                                <Style Selector="Button:pointerover">
-                                    <Setter Property="RenderTransform" Value="scale(1.3)" />
-                                </Style>
-                                <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-                                    <Setter Property="Background" Value="Transparent" />
-                                </Style>
-                                <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
-                                    <Setter Property="Background" Value="Transparent" />
-                                </Style>
-                            </Button.Styles>
+                                <Button.Styles>
+                                    <Style Selector="Button">
+                                        <Setter Property="RenderTransform" Value="scale(1)" />
+                                    </Style>
+                                    <Style Selector="Button:pointerover">
+                                        <Setter Property="RenderTransform" Value="scale(1.3)" />
+                                    </Style>
+                                    <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                                        <Setter Property="Background" Value="Transparent" />
+                                    </Style>
+                                    <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                                        <Setter Property="Background" Value="Transparent" />
+                                    </Style>
+                                </Button.Styles>
 
-                            <!-- Item content: icon + running indicator -->
-                            <StackPanel Orientation="Vertical" Spacing="3"
-                                        HorizontalAlignment="Center">
-                                <Image Source="{Binding Icon}"
-                                       Width="{Binding IconSize}"
-                                       Height="{Binding IconSize}"
-                                       Stretch="Uniform"
-                                       RenderOptions.BitmapInterpolationMode="HighQuality" />
-                                <Ellipse Width="4" Height="4"
-                                         Fill="White"
-                                         IsVisible="{Binding IsRunning}" />
-                            </StackPanel>
-                        </Button>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </StackPanel>
-    </Border>
+                                <!-- Item content: icon + running indicator -->
+                                <StackPanel Orientation="Vertical" Spacing="3"
+                                            HorizontalAlignment="Center">
+                                    <Image Source="{Binding Icon}"
+                                           Width="{Binding IconSize}"
+                                           Height="{Binding IconSize}"
+                                           Stretch="Uniform"
+                                           RenderOptions.BitmapInterpolationMode="HighQuality" />
+                                    <Ellipse Width="4" Height="4"
+                                             Fill="White"
+                                             IsVisible="{Binding IsRunning}" />
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Clock, Windows 11 taskbar style: 24-hour time over the date,
+                     always last. Clicking it toggles the month calendar. -->
+                <Button x:Name="ClockButton"
+                        VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Padding="8,4"
+                        Cursor="Hand"
+                        ToolTip.Tip="{Binding ClockToolTip}"
+                        Click="OnClockClicked">
+                    <Button.Styles>
+                        <!-- Flat, with the taskbar clock's soft hover instead of
+                             the Fluent button chrome. -->
+                        <Style Selector="Button">
+                            <Setter Property="Background" Value="Transparent" />
+                            <Setter Property="BorderBrush" Value="Transparent" />
+                            <Setter Property="CornerRadius" Value="4" />
+                        </Style>
+                        <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                            <Setter Property="Background" Value="#1FFFFFFF" />
+                            <Setter Property="BorderBrush" Value="Transparent" />
+                        </Style>
+                        <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                            <Setter Property="Background" Value="#14FFFFFF" />
+                        </Style>
+                        <Style Selector="TextBlock">
+                            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+                            <Setter Property="FontSize" Value="{Binding ClockFontSize}" />
+                            <Setter Property="Foreground" Value="White" />
+                            <Setter Property="HorizontalAlignment" Value="Right" />
+                        </Style>
+                    </Button.Styles>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock Text="{Binding ClockTime}" />
+                        <TextBlock Text="{Binding ClockDate}" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <!-- Month calendar opened from the clock. Placement and light dismiss are
+             handled in code (the dock never activates, see ToggleCalendar). -->
+        <Popup x:Name="CalendarPopup"
+               PlacementTarget="{Binding #DockBar}"
+               IsLightDismissEnabled="False"
+               Topmost="True">
+            <views:DockCalendar x:Name="Calendar" DataContext="{Binding Calendar}" />
+        </Popup>
+    </Panel>
 </Window>

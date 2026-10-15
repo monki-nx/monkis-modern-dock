@@ -26,6 +26,7 @@ public static class Win32Constants
 
     // ShowWindow commands
     public const int SW_RESTORE = 9;
+    public const int SW_MINIMIZE = 6;
     public const int SW_SHOW = 5;
     public const int SW_HIDE = 0;
 
@@ -77,6 +78,12 @@ public static class Win32Constants
     // Shell hook notification codes
     public const int HSHELL_WINDOWACTIVATED = 4;
     public const int HSHELL_RUDEAPPACTIVATED = 0x8004;
+
+    // Virtual-key codes polled with GetAsyncKeyState
+    public const int VK_LBUTTON = 0x01;
+    public const int VK_RBUTTON = 0x02;
+    public const int VK_MBUTTON = 0x04;
+    public const int VK_ESCAPE = 0x1B;
 }
 
 /// <summary>Callback for EnumWindows.</summary>
@@ -223,6 +230,27 @@ public static class User32
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool GetCursorPos(out POINT lpPoint);
+
+    [DllImport("user32.dll")]
+    public static extern short GetAsyncKeyState(int vKey);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
+
+    /// <summary>GA_PARENT: the real parent (GetParent returns the owner for popup windows).</summary>
+    public const uint GA_PARENT = 1;
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+
+    [DllImport("user32.dll")]
+    public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern ushort RegisterClass(WNDCLASS lpWndClass);

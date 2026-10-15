@@ -194,6 +194,17 @@ public partial class WindowPreviewPopup : Window
             var previewRow = new PreviewRow { Row = row, Area = thumbArea };
             row.PointerPressed += (_, e) =>
             {
+                var kind = e.GetCurrentPoint(row).Properties.PointerUpdateKind;
+                if (kind == PointerUpdateKind.MiddleButtonPressed)
+                {
+                    // Middle click closes the window, as on the taskbar thumbnails.
+                    e.Handled = true;
+                    CloseRequested?.Invoke(window.Handle);
+                    return;
+                }
+                if (kind != PointerUpdateKind.LeftButtonPressed)
+                    return;
+
                 // The press implicitly captures the pointer; when the popup
                 // hides right after (click-to-activate), the capture must be
                 // released or the dock stops receiving hover until clicked.

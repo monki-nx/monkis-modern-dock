@@ -23,6 +23,12 @@ public sealed class DockWindowBehavior : IDisposable
     private SubclassProc? _subclassProc; // kept alive to prevent GC of the native callback
     private bool _subclassed;
 
+    /// <summary>Window message the shell uses for this dock's appbar notifications.</summary>
+    public uint AppBarCallbackMessage { get; } = User32.RegisterWindowMessage("CedroModernDock.AppBar");
+
+    /// <summary>Raised with the notification code (wParam) of each appbar notification.</summary>
+    public Action<int>? AppBarNotification { get; set; }
+
     public DockWindowBehavior(IntPtr hwnd, Action<string>? onStatus = null)
     {
         _hwnd = hwnd;
@@ -79,6 +85,21 @@ public sealed class DockWindowBehavior : IDisposable
     }
 
     /// <summary>
+    /// Screen position of the parent's client origin. After SetParent, window
+    /// moves are relative to the desktop window, which starts at the virtual
+    /// screen's top-left — not (0,0) when a monitor sits above or left of the
+    /// primary one. (0,0) when the dock has no parent.
+    /// </summary>
+    public (int X, int Y) GetParentOrigin()
+    {
+        // GetParent would return the (absent) owner: the dock keeps WS_POPUP.
+        IntPtr parent = _hwnd == IntPtr.Zero ? IntPtr.Zero : User32.GetAncestor(_hwnd, User32.GA_PARENT);
+        if (parent == IntPtr.Zero) return (0, 0);
+        var origin = new POINT();
+        return User32.ClientToScreen(parent, ref origin) ? (origin.X, origin.Y) : (0, 0);
+    }
+
+    /// <summary>
     /// Locates the desktop window that hosts the desktop icons: the WorkerW
     /// containing a SHELLDLL_DefView child (created on demand by Progman).
     /// Falls back to Progman itself when no such WorkerW exists.
@@ -119,6 +140,12 @@ public sealed class DockWindowBehavior : IDisposable
         IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
         UIntPtr uIdSubclass, IntPtr dwRefData)
     {
+        if (uMsg == AppBarCallbackMessage && AppBarCallbackMessage != 0)
+        {
+            AppBarNotification?.Invoke(wParam.ToInt32());
+            return IntPtr.Zero;
+        }
+
         // 1. Block explicit minimize (SC_MINIMIZE) — covers normal "Minimize"
         //    clicks and Win+D "Show Desktop" (which sends SC_MINIMIZE).
         if (uMsg == Win32Constants.WM_SYSCOMMAND)

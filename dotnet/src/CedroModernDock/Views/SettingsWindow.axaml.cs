@@ -60,6 +60,12 @@ public partial class SettingsWindow : Window
         window.Show(owner);
     }
 
+    /// <summary>
+    /// Rebuilds the dock-items list of the open settings window, if any, after
+    /// the items changed outside it (pin/unpin from the dock's context menu).
+    /// </summary>
+    public static void RefreshItemsIfOpen() => _instance?.Vm.RefreshItemLabels();
+
     private SettingsViewModel Vm => _vm ??= (DataContext as SettingsViewModel)!;
 
     private void OnClosed(object? sender, EventArgs e) => Vm?.Shutdown();

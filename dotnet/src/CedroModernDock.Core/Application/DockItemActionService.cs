@@ -50,4 +50,34 @@ public class DockItemActionService
 
         return true;
     }
+
+    /// <summary>
+    /// Launches a program item elevated. Only program items can be elevated;
+    /// any other item type returns false.
+    /// </summary>
+    public bool RunAsAdministrator(DockItem item)
+    {
+        if (item is DockProgramItemModel programItem)
+            return _programLauncher.LaunchAsAdministrator(programItem.ExecutablePath, programItem.Label);
+        return false;
+    }
+
+    /// <summary>
+    /// Reveals the item's target in Explorer: the executable for program
+    /// items, the folder itself for folder items. Other item types have no
+    /// file location and return false.
+    /// </summary>
+    public bool OpenFileLocation(DockItem item)
+    {
+        return item switch
+        {
+            DockProgramItemModel programItem => _programLauncher.OpenFileLocation(programItem.ExecutablePath),
+            DockFolderItemModel folderItem => _programLauncher.OpenFileLocation(folderItem.FolderPath),
+            _ => false
+        };
+    }
+
+    /// <summary>True when the item has a file location that Explorer can reveal.</summary>
+    public static bool HasFileLocation(DockItem item) =>
+        item is DockProgramItemModel or DockFolderItemModel;
 }

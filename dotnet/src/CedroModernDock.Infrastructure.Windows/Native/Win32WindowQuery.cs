@@ -13,8 +13,8 @@ public static class Win32WindowQuery
     /// <summary>Minimal info required to activate and label a window.</summary>
     public sealed record WindowInfo(IntPtr Handle, string Title);
 
-    /// <summary>Taskbar-visible window with its owning executable path.</summary>
-    public sealed record RunningWindowInfo(IntPtr Handle, string Title, string ExecutablePath);
+    /// <summary>Taskbar-visible window with its owning executable path and AppUserModelID (when known).</summary>
+    public sealed record RunningWindowInfo(IntPtr Handle, string Title, string ExecutablePath, string? AppId = null);
 
     // For UWP/AppX apps the visible top-level window is an ApplicationFrameHost
     // frame whose real app exe is found in a child CoreWindow. When the app is
@@ -30,7 +30,7 @@ public static class Win32WindowQuery
     /// taskbar's own filter: visible, titled, not a tool window, and either an
     /// app window or unowned. Excludes cloaked (Win+D hidden) windows.
     /// </summary>
-    public static List<RunningWindowInfo> GetTaskbarWindows()
+    public static List<RunningWindowInfo> GetTaskbarWindows(Func<IntPtr, string?>? windowAppId = null)
     {
         var windows = new List<RunningWindowInfo>();
 
@@ -44,7 +44,7 @@ public static class Win32WindowQuery
         User32.EnumWindows((hWnd, _) =>
         {
             if (TryGetTaskbarWindow(hWnd, out var info))
-                windows.Add(info!);
+                windows.Add(windowAppId == null ? info! : info! with { AppId = windowAppId(hWnd) });
             return true;
         }, IntPtr.Zero);
 
@@ -155,16 +155,21 @@ public static class Win32WindowQuery
     }
 
     /// <summary>
-    /// Returns all visible top-level windows whose owning process image path
-    /// matches <paramref name="executablePath"/>.
+    /// Returns all visible top-level windows (in z-order, topmost first) whose
+    /// owning process image path matches <paramref name="executablePath"/> or
+    /// whose AppUserModelID is one of <paramref name="appIds"/> — the taskbar
+    /// groups windows by AppUserModelID, which is how an execution alias
+    /// (wt.exe) or a launcher finds the windows of the app it starts.
     /// </summary>
-    public static List<WindowInfo> GetOpenWindows(string? executablePath)
+    public static List<WindowInfo> GetOpenWindows(string? executablePath,
+        IReadOnlyCollection<string>? appIds = null, Func<IntPtr, string?>? windowAppId = null)
     {
         var windows = new List<WindowInfo>();
         if (string.IsNullOrEmpty(executablePath))
             return windows;
 
         var targetPath = NormalizePath(executablePath);
+        bool matchByAppId = appIds is { Count: > 0 } && windowAppId != null;
 
         User32.EnumWindows((hWnd, _) =>
         {
@@ -200,8 +205,15 @@ public static class Win32WindowQuery
                 string.Equals(cls, "MSCTFIME UI", StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            if (IsWindowFromExecutable(hWnd, targetPath))
-                windows.Add(new WindowInfo(ResolveOpenWindow(hWnd, title), title));
+            bool matches = IsWindowFromExecutable(hWnd, targetPath)
+                || (matchByAppId && windowAppId!(hWnd) is { } appId
+                    && appIds!.Contains(appId, StringComparer.OrdinalIgnoreCase));
+            if (matches)
+            {
+                IntPtr handle = ResolveOpenWindow(hWnd, title);
+                if (!windows.Any(w => w.Handle == handle))
+                    windows.Add(new WindowInfo(handle, title));
+            }
 
             return true;
         }, IntPtr.Zero);
@@ -266,15 +278,29 @@ public static class Win32WindowQuery
             "Progman", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Restores the window if minimized and brings it to the foreground.</summary>
+    /// <summary>
+    /// Brings the window to the foreground, restoring it first only when it is
+    /// minimized. SW_RESTORE on a visible snapped or maximized window would
+    /// "restore down" to its floating size, which the taskbar never does.
+    /// </summary>
     public static void ActivateWindow(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero)
             return;
 
-        User32.ShowWindow(hwnd, Win32Constants.SW_RESTORE);
+        if (User32.IsIconic(hwnd))
+            User32.ShowWindow(hwnd, Win32Constants.SW_RESTORE);
         User32.SetForegroundWindow(hwnd);
     }
+
+    /// <summary>Minimizes the window (taskbar click on the already active window).</summary>
+    public static void MinimizeWindow(IntPtr hwnd)
+    {
+        if (hwnd != IntPtr.Zero)
+            User32.ShowWindow(hwnd, Win32Constants.SW_MINIMIZE);
+    }
+
+    public static bool IsMinimized(IntPtr hwnd) => hwnd != IntPtr.Zero && User32.IsIconic(hwnd);
 
     /// <summary>
     /// Asks the window to close by posting WM_CLOSE (the same message the

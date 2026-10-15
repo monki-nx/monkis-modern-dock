@@ -1,0 +1,250 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CedroModernDock.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             x:Class="CedroModernDock.Views.DockCalendar"
+             x:DataType="vm:CalendarViewModel"
+             FontFamily="Segoe UI Variable Text, Segoe UI"
+             PointerWheelChanged="OnPointerWheelChanged">
+
+    <Design.DataContext>
+        <vm:CalendarViewModel/>
+    </Design.DataContext>
+
+    <!-- Brushes are set by DockCalendar.ApplyStyle from the dock's color, like
+         the context menu; these defaults only serve the designer. -->
+    <UserControl.Resources>
+        <SolidColorBrush x:Key="CalendarBackground" Color="#E6202020"/>
+        <SolidColorBrush x:Key="CalendarBorderBrush" Color="#30FFFFFF"/>
+        <SolidColorBrush x:Key="CalendarHeaderBrush" Color="#0CFFFFFF"/>
+        <SolidColorBrush x:Key="CalendarForeground" Color="White"/>
+        <SolidColorBrush x:Key="CalendarDimForeground" Color="#80FFFFFF"/>
+        <SolidColorBrush x:Key="CalendarHoverBrush" Color="#1FFFFFFF"/>
+        <SolidColorBrush x:Key="CalendarPressedBrush" Color="#14FFFFFF"/>
+        <SolidColorBrush x:Key="CalendarAccentBrush" Color="#99EBFF"/>
+        <SolidColorBrush x:Key="CalendarOnAccentBrush" Color="Black"/>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <Style Selector="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource CalendarForeground}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <!-- Header, month title and arrows: flat, with the taskbar's soft hover. -->
+        <Style Selector="Button.flat">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="FocusAdorner" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}"
+                            CornerRadius="4"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Button.flat:pointerover">
+            <Setter Property="Background" Value="{DynamicResource CalendarHoverBrush}"/>
+        </Style>
+        <Style Selector="Button.flat:pressed">
+            <Setter Property="Background" Value="{DynamicResource CalendarPressedBrush}"/>
+        </Style>
+
+        <!-- Day cells: circles only, no button chrome. -->
+        <Style Selector="Button.day">
+            <Setter Property="FocusAdorner" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <ContentPresenter Background="Transparent" Content="{TemplateBinding Content}"/>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Button.day:pointerover Ellipse.hover">
+            <Setter Property="Fill" Value="{DynamicResource CalendarHoverBrush}"/>
+        </Style>
+        <Style Selector="Button.day:pressed Ellipse.hover">
+            <Setter Property="Fill" Value="{DynamicResource CalendarPressedBrush}"/>
+        </Style>
+        <Style Selector="TextBlock.other">
+            <Setter Property="Foreground" Value="{DynamicResource CalendarDimForeground}"/>
+        </Style>
+        <Style Selector="TextBlock.today">
+            <Setter Property="Foreground" Value="{DynamicResource CalendarOnAccentBrush}"/>
+        </Style>
+
+        <Style Selector="StackPanel.hidden, ItemsControl.hidden">
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
+        </Style>
+
+        <Style Selector="Path.arrow">
+            <Setter Property="Fill" Value="{DynamicResource CalendarDimForeground}"/>
+            <Setter Property="Width" Value="7"/>
+            <Setter Property="Height" Value="4"/>
+            <Setter Property="Stretch" Value="Fill"/>
+        </Style>
+        <Style Selector="Button.flat:pointerover Path.arrow">
+            <Setter Property="Fill" Value="{DynamicResource CalendarForeground}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <!-- Compact base size (26 px cells: 7 x 26 + margins = 196 px), scaled
+         down by FitTo when half the dock is narrower than that. -->
+    <LayoutTransformControl x:Name="Scaler">
+    <Border x:Name="Root"
+            Width="196"
+            Background="{DynamicResource CalendarBackground}"
+            BorderBrush="{DynamicResource CalendarBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            ClipToBounds="True">
+        <DockPanel>
+            <!-- Today's date. Clicking it brings today's month back into view. -->
+            <Border DockPanel.Dock="Top"
+                    Background="{DynamicResource CalendarHeaderBrush}"
+                    BorderBrush="{DynamicResource CalendarBorderBrush}"
+                    BorderThickness="0,0,0,1"
+                    Padding="4">
+                <Button Classes="flat"
+                        HorizontalAlignment="Left"
+                        Padding="6,3"
+                        Command="{Binding GoToTodayCommand}">
+                    <TextBlock Text="{Binding HeaderText}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                </Button>
+            </Border>
+
+            <StackPanel Margin="6,4,6,6">
+                <!-- Title and navigation: the month title opens the year view;
+                     there the year is display only (no decade view). The arrows
+                     step months, or years in the year view. -->
+                <DockPanel Margin="0,0,0,2">
+                    <Button Classes="flat" DockPanel.Dock="Right"
+                            Width="24" Height="24"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            Command="{Binding NextCommand}">
+                        <Path Classes="arrow" Data="M0,0 L10,0 L5,6 Z"/>
+                    </Button>
+                    <Button Classes="flat" DockPanel.Dock="Right"
+                            Width="24" Height="24"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            Command="{Binding PreviousCommand}">
+                        <Path Classes="arrow" Data="M0,6 L5,0 L10,6 Z"/>
+                    </Button>
+                    <Panel x:Name="TitlePanel" HorizontalAlignment="Left">
+                        <Button Classes="flat"
+                                Padding="6,4"
+                                IsVisible="{Binding IsMonthView}"
+                                Command="{Binding ShowYearCommand}">
+                            <TextBlock Text="{Binding MonthTitle}" FontSize="12" FontWeight="SemiBold"/>
+                        </Button>
+                        <TextBlock Text="{Binding YearTitle}"
+                                   Margin="6,4"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource CalendarDimForeground}"
+                                   IsVisible="{Binding IsYearView}"/>
+                    </Panel>
+                </DockPanel>
+
+                <!-- Both views stay in the layout (the hidden one transparent and
+                     not hit-testable), so switching never resizes the popup.
+                     Clipped so the navigation slide stays inside the grid. -->
+                <Panel x:Name="Pages" ClipToBounds="True">
+                    <StackPanel x:Name="DaysPage" Classes.hidden="{Binding IsYearView}">
+                        <ItemsControl ItemsSource="{Binding DayNames}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="7"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <TextBlock Text="{Binding}"
+                                               Margin="0,4"
+                                               FontSize="10"
+                                               FontWeight="SemiBold"
+                                               HorizontalAlignment="Center"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <ItemsControl ItemsSource="{Binding Days}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="7"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:CalendarDayViewModel">
+                                    <Button Classes="day"
+                                            HorizontalAlignment="Center"
+                                            Click="OnDayClicked">
+                                        <Panel Width="26" Height="26">
+                                            <Ellipse Width="23" Height="23"
+                                                     Fill="{DynamicResource CalendarAccentBrush}"
+                                                     IsVisible="{Binding IsToday}"/>
+                                            <Ellipse Classes="hover" Width="23" Height="23"/>
+                                            <Ellipse Width="23" Height="23"
+                                                     Stroke="{DynamicResource CalendarAccentBrush}"
+                                                     StrokeThickness="1.5"
+                                                     IsVisible="{Binding ShowRing}"/>
+                                            <Ellipse Width="19" Height="19"
+                                                     Stroke="{DynamicResource CalendarOnAccentBrush}"
+                                                     StrokeThickness="1"
+                                                     IsVisible="{Binding ShowTodayRing}"/>
+                                            <TextBlock Text="{Binding Text}"
+                                                       FontSize="11"
+                                                       HorizontalAlignment="Center"
+                                                       Classes.other="{Binding !IsCurrentMonth}"
+                                                       Classes.today="{Binding IsToday}"/>
+                                        </Panel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- Year view: the year's months, then 4 of the next year. -->
+                    <ItemsControl x:Name="YearPage"
+                                  ItemsSource="{Binding Months}"
+                                  VerticalAlignment="Center"
+                                  Classes.hidden="{Binding IsMonthView}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Columns="4"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:CalendarMonthItemViewModel">
+                                <Button Classes="day"
+                                        HorizontalAlignment="Center"
+                                        Click="OnMonthClicked">
+                                    <Panel Width="44" Height="44">
+                                        <Ellipse Width="38" Height="38"
+                                                 Fill="{DynamicResource CalendarAccentBrush}"
+                                                 IsVisible="{Binding IsCurrent}"/>
+                                        <Ellipse Classes="hover" Width="38" Height="38"/>
+                                        <TextBlock Text="{Binding Text}"
+                                                   FontSize="11"
+                                                   HorizontalAlignment="Center"
+                                                   Classes.other="{Binding !IsInYear}"
+                                                   Classes.today="{Binding IsCurrent}"/>
+                                    </Panel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Panel>
+            </StackPanel>
+        </DockPanel>
+    </Border>
+    </LayoutTransformControl>
+</UserControl>

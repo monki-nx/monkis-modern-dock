@@ -9,14 +9,25 @@ using CedroModernDock.Core.Application;
 /// </summary>
 public interface IWindowQueryGateway
 {
-    List<WindowInfo> FindOpenWindows(string? executablePath);
+    /// <summary>
+    /// Open windows of a program, topmost first. <paramref name="label"/>
+    /// helps identify apps started through an alias or a launcher.
+    /// </summary>
+    List<WindowInfo> FindOpenWindows(string? executablePath, string? label = null);
     List<RunningWindowInfo> FindTaskbarWindows();
+
+    /// <summary>AppUserModelIDs the program's windows are grouped under by the taskbar.</summary>
+    IReadOnlyCollection<string> AppIdsOf(string executablePath, string? label);
+
     void Activate(WindowInfo windowInfo);
+    void Minimize(WindowInfo windowInfo);
+    bool IsMinimized(WindowInfo windowInfo);
+    IntPtr GetForegroundWindow();
     void Close(WindowInfo windowInfo);
 }
 
 /// <summary>Minimal info required to activate and label a window.</summary>
 public sealed record WindowInfo(IntPtr Handle, string Title);
 
-/// <summary>Taskbar-visible window plus its owning executable path.</summary>
-public sealed record RunningWindowInfo(IntPtr Handle, string Title, string ExecutablePath);
+/// <summary>Taskbar-visible window plus its owning executable path and AppUserModelID (when known).</summary>
+public sealed record RunningWindowInfo(IntPtr Handle, string Title, string ExecutablePath, string? AppId = null);

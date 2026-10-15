@@ -7,12 +7,69 @@
 
 <img width="800" alt="Cedro Modern Dock demo" src="docs/assets/demo.gif" />
 
+> [!NOTE]
+> **This is a personal fork.** It is based on [Cedro-Software/cedro-modern-dock](https://github.com/Cedro-Software/cedro-modern-dock);
+> all credit for the dock itself goes to its authors. The changes listed below were made in this
+> fork only and are **not** part of the official releases.
+
+## What this fork adds
+
+### Taskbar-style context menu
+- **Right click on any dock item** shows the app's jump list, as on the Windows 11 taskbar (VS Code
+  recent folders, Terminal profiles, Chrome recently closed tabs, Explorer frequent folders,
+  WhatsApp pinned chats...), followed by the dock's own actions: launch, run as administrator, open
+  file location, pin/unpin and close window(s).
+- The menu is **styled like the dock**: its color and transparency, Windows 11 acrylic and rounded
+  corners. A new *acrylic intensity* slider in Settings controls how much of the background shows
+  through.
+
+### Taskbar-like behavior
+- **Left click on a running app** brings its window forward, minimizes it when it is already active,
+  or cycles through its windows when it has several.
+- **Middle click** on a dock icon starts a new instance; on a preview thumbnail it closes that window.
+- Windows are grouped by AppUserModelID, like the taskbar does, so apps started through an alias or a
+  launcher (`wt.exe`) show as running and no longer appear twice.
+- Activating a snapped or maximized window no longer restores it to its floating size.
+
+### Positioning
+- New **"keep maximized windows above the dock"** setting (on by default): the dock reserves its strip
+  of the screen, so maximized windows stop above it.
+- Static positioning sticks to the monitor the dock was last on, and the saved position no longer
+  drifts when a monitor sits above or to the left of the primary one.
+
+### Windows 11 style clock and calendar
+- **Clock** at the end of the dock, after the open apps: 24-hour time over the date (DD/MM/YYYY).
+  Hovering it shows the full date.
+- **Clicking the clock opens a month calendar** like the taskbar's: today marked with the system
+  accent color, a ring on the day you click, and ▲▼ or the mouse wheel to browse months with a quick
+  slide. Clicking the month title opens a **year view** to jump to any month; clicking the date on top
+  returns to today.
+- It shares the context menu's look and acrylic slider, and never spans more than half the dock.
+  Day and month names and the first day of the week follow the Windows regional settings.
+
+### Installing this fork
+The official installer below does not include these changes. Build this fork from source instead
+(requires the .NET 9 SDK or later):
+
+```powershell
+cd dotnet
+dotnet publish src/CedroModernDock/CedroModernDock.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+```
+
+Then run `publish/CedroModernDock.exe`, or close the dock and copy it over the installed
+`C:\Program Files (x86)\CedroModernDock\CedroModernDock.exe`. `dotnet/installer/build.ps1` builds an
+MSI instead (requires [WiX](https://wixtoolset.org/)).
+
+---
+
+*The rest of this README is the original project's.*
+
 
 
 > Follow @TeiuAlligator on X to stay tuned for new features and updates!
 
 
-> ## How To Install
+> ## How To Install (official version, without this fork's changes)
 > 1. Go to [Releases](https://github.com/arthurdeka/cedro-modern-dock/releases):
 > 2. Download the latest `CedroModernDock-1.2.0-x64.msi` file
 > 3. Execute and install

@@ -86,6 +86,89 @@ public class DockServiceTest
         Assert.Equal(new[] { "B", "C", "A" }, labels);
     }
 
+    [Fact]
+    public void UnpinItemRemovesThatItemAndSaves()
+    {
+        var repository = new InMemoryDockRepository();
+        var service = new DockService(repository);
+        var a = new DockProgramItemModel("A", @"C:\tools\a.exe");
+        var b = new DockProgramItemModel("B", @"C:\tools\b.exe");
+        service.AddItem(a);
+        service.AddItem(b);
+        service.AddItem(new DockSettingsItemModel());
+
+        bool removed = service.UnpinItem(a);
+
+        Assert.True(removed);
+        Assert.Equal(new[] { "B", "Settings" }, service.GetItems().Select(i => i.Label).ToList());
+        Assert.Same(repository.SavedModel, service.GetDock());
+    }
+
+    [Fact]
+    public void UnpinItemNeverRemovesTheSettingsItem()
+    {
+        var repository = new InMemoryDockRepository();
+        var service = new DockService(repository);
+        var settings = new DockSettingsItemModel();
+        service.AddItem(settings);
+
+        Assert.False(service.UnpinItem(settings));
+        Assert.Single(service.GetItems());
+    }
+
+    [Fact]
+    public void UnpinItemIgnoresItemsThatAreNotInTheDock()
+    {
+        var repository = new InMemoryDockRepository();
+        var service = new DockService(repository);
+        service.AddItem(new DockProgramItemModel("A", @"C:\tools\a.exe"));
+
+        // Same values, different instance: only the pinned instance is removed.
+        Assert.False(service.UnpinItem(new DockProgramItemModel("A", @"C:\tools\a.exe")));
+        Assert.Single(service.GetItems());
+    }
+
+    [Fact]
+    public void PinProgramInsertsBeforeATrailingSettingsItem()
+    {
+        var repository = new InMemoryDockRepository();
+        var service = new DockService(repository);
+        service.AddItem(new DockProgramItemModel("A", @"C:\tools\a.exe"));
+        service.AddItem(new DockSettingsItemModel());
+
+        bool pinned = service.PinProgram("B", @"C:\tools\b.exe");
+
+        Assert.True(pinned);
+        Assert.Equal(new[] { "A", "B", "Settings" }, service.GetItems().Select(i => i.Label).ToList());
+        Assert.Same(repository.SavedModel, service.GetDock());
+    }
+
+    [Fact]
+    public void PinProgramAppendsWhenTheSettingsItemIsNotLast()
+    {
+        var repository = new InMemoryDockRepository();
+        var service = new DockService(repository);
+        service.AddItem(new DockSettingsItemModel());
+        service.AddItem(new DockProgramItemModel("A", @"C:\tools\a.exe"));
+
+        service.PinProgram("B", @"C:\tools\b.exe");
+
+        Assert.Equal(new[] { "Settings", "A", "B" }, service.GetItems().Select(i => i.Label).ToList());
+    }
+
+    [Fact]
+    public void PinProgramSkipsAnAlreadyPinnedExecutable()
+    {
+        var repository = new InMemoryDockRepository();
+        var service = new DockService(repository);
+        service.AddItem(new DockProgramItemModel("A", @"C:\tools\a.exe"));
+
+        bool pinned = service.PinProgram("A again", @"C:\TOOLS\A.EXE");
+
+        Assert.False(pinned);
+        Assert.Single(service.GetItems());
+    }
+
     private sealed class InMemoryDockRepository : IDockRepository
     {
         private readonly DockModel _model = new();

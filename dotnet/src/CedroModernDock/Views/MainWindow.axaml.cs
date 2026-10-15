@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives.PopupPositioning;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -19,8 +21,13 @@ namespace CedroModernDock.Views;
 public partial class MainWindow : Window
 {
     private DockWindowBehavior? _dockBehavior;
+    private DockAppBar? _appBar;
     private AppServices? _appServices;
     private WindowPreviewPopup? _previewPopup;
+    private ContextMenu? _openContextMenu;
+    private IntPtr _contextMenuHwnd;
+    private IntPtr _contextMenuForeground;
+    private readonly DispatcherTimer _contextMenuWatch = new() { Interval = TimeSpan.FromMilliseconds(40) };
     private Button? _hoveredButton;
     private Button? _previewAnchor;
     private int _previewRequestId;
@@ -60,6 +67,8 @@ public partial class MainWindow : Window
             _previewCloseRefresh.Stop();
             RefreshPreviewAfterClose();
         };
+        _contextMenuWatch.Tick += OnContextMenuWatchTick;
+        _calendarWatch.Tick += OnCalendarWatchTick;
     }
 
     private bool IsPointerOverPreview()
@@ -90,6 +99,12 @@ public partial class MainWindow : Window
 
         _dockBehavior = new DockWindowBehavior(handle.Handle, UpdateStatus);
         _dockBehavior.Apply();
+        _appBar = new DockAppBar(handle.Handle, _dockBehavior.AppBarCallbackMessage);
+        _dockBehavior.AppBarNotification = code =>
+        {
+            if (code == DockAppBar.ABN_POSCHANGED)
+                UpdateAppBar(force: true);
+        };
 
         // Initialize the dock ViewModel (loads items, starts indicator watcher).
         if (DataContext is MainWindowViewModel vm)
@@ -104,12 +119,30 @@ public partial class MainWindow : Window
 
         // Static anchors must use the finalized window size, which SizeToContent
         // only produces after the first layout pass. Re-apply once layout settles
-        // and whenever the dock content resizes the window.
-        if (_appServices?.PositioningService.IsDynamicPositioning() == false)
+        // and whenever the dock content resizes the window. Subscribed in both
+        // modes: switching to STATIC from settings must re-anchor on resizes
+        // too, and the reserved screen strip follows the dock's size.
+        SizeChanged += OnDockSizeChanged;
+        Dispatcher.UIThread.Post(() => ApplyDockPosition(), DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Reserves the screen strip under the dock (appbar) when enabled and the
+    /// dock is horizontal, so maximized windows stop above it; releases it
+    /// otherwise. Positions and sizes are read from the native window.
+    /// </summary>
+    private void UpdateAppBar(bool force = false)
+    {
+        if (_appBar == null || _appServices == null) return;
+        bool reserve = _appServices.PositioningService.GetReserveScreenSpace()
+            && !_appServices.AppearanceService.GetVerticalDock();
+        IntPtr hwnd = this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (!reserve || hwnd == IntPtr.Zero || !User32.GetWindowRect(hwnd, out RECT rect))
         {
-            SizeChanged += OnDockSizeChanged;
-            Dispatcher.UIThread.Post(() => ApplyDockPosition(), DispatcherPriority.Loaded);
+            _appBar.Remove();
+            return;
         }
+        _appBar.ReserveBottom(rect, force);
     }
 
     /// <summary>
@@ -121,20 +154,26 @@ public partial class MainWindow : Window
     private void ApplyDockPosition(bool force = false)
     {
         if (_appServices == null) return;
-        if (!force && _appServices.PositioningService.IsDynamicPositioning()) return;
-        var (x, y) = _appServices.PositioningService.ResolvePosition(Width, Height);
-        Position = new PixelPoint((int)x, (int)y);
+        if (force || !_appServices.PositioningService.IsDynamicPositioning())
+        {
+            var (x, y) = _appServices.PositioningService.ResolvePosition(Width, Height);
+            // The dock is parented to the desktop window, so a position set on it
+            // is relative to that parent, whose origin is the virtual screen's
+            // top-left (negative with a monitor above or left of the primary one),
+            // while Position reads back in screen coordinates. Without this offset
+            // the saved position drifts by that origin on every start.
+            var (originX, originY) = _dockBehavior?.GetParentOrigin() ?? (0, 0);
+            Position = new PixelPoint((int)x - originX, (int)y - originY);
+        }
+        UpdateAppBar();
     }
 
-    private void OnDockSizeChanged(object? sender, SizeChangedEventArgs e)
-    {
-        if (_appServices?.PositioningService.IsDynamicPositioning() == false)
-            ApplyDockPosition();
-    }
+    private void OnDockSizeChanged(object? sender, SizeChangedEventArgs e) => ApplyDockPosition();
 
     private void OnItemPointerEntered(object? sender, PointerEventArgs e)
     {
         if (sender is not Button button || _appServices == null) return;
+        if (_openContextMenu != null || CalendarPopup.IsOpen) return;
         if (button.DataContext is not DockItemViewModel vm || vm.Item is not DockProgramItemModel item)
             return;
 
@@ -164,6 +203,7 @@ public partial class MainWindow : Window
     private void OnRunningAppPointerEntered(object? sender, PointerEventArgs e)
     {
         if (sender is not Button button || _appServices == null) return;
+        if (_openContextMenu != null || CalendarPopup.IsOpen) return;
         if (button.DataContext is not RunningAppViewModel vm) return;
 
         _hoveredButton = button;
@@ -191,33 +231,474 @@ public partial class MainWindow : Window
         });
     }
 
+    /// <summary>Middle click on a pinned item starts a new instance, as on the taskbar.</summary>
+    private void OnItemPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton != MouseButton.Middle) return;
+        if (sender is not Button { DataContext: DockItemViewModel itemVm }) return;
+        if (DataContext is not MainWindowViewModel vm || itemVm.Item is DockSettingsItemModel) return;
+        e.Handled = true;
+        HidePreview();
+        vm.LaunchItem(itemVm);
+    }
+
+    /// <summary>Middle click on an unpinned running app starts a new instance, as on the taskbar.</summary>
+    private void OnRunningAppPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (e.InitialPressMouseButton != MouseButton.Middle) return;
+        if (sender is not Button { DataContext: RunningAppViewModel app }) return;
+        if (DataContext is not MainWindowViewModel vm) return;
+        e.Handled = true;
+        HidePreview();
+        vm.LaunchRunningApp(app);
+    }
+
     /// <summary>
-    /// Clicking an unpinned running app activates its window when it has exactly
-    /// one open window (taskbar-style); with multiple windows nothing happens —
-    /// the preview popup still offers per-window control via hover.
+    /// Clicking an unpinned running app behaves like the taskbar (and like a
+    /// pinned item): bring its window forward, minimize it when it is already
+    /// active, or cycle through its windows when it has several.
     /// </summary>
     private void OnRunningAppClicked(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button button || _appServices == null) return;
-        if (button.DataContext is not RunningAppViewModel vm) return;
-
-        string executablePath = vm.ExecutablePath;
-        List<WindowInfo> windows;
-        try
-        {
-            windows = _appServices.WindowPreviewService.LoadPreview(
-                new DockProgramItemModel(vm.Label, executablePath));
-        }
-        catch (Exception)
-        {
-            return;
-        }
-        if (windows.Count != 1) return;
+        if (button.DataContext is not RunningAppViewModel app) return;
+        if (DataContext is not MainWindowViewModel vm) return;
 
         ++_previewRequestId;
         _previewPopup?.HideNow();
         _hoveredButton = null;
-        _appServices.WindowPreviewService.Activate(windows[0]);
+        vm.ActivateRunningApp(app);
+    }
+
+    /// <summary>
+    /// Right click (or the Menu key) on a pinned item: the taskbar menu — the
+    /// app's jump list (VS Code's recent folders, Terminal profiles, ...)
+    /// followed by the item name (launch), elevation, file location, unpin and
+    /// close. The settings item is mandatory and opens settings on click, so
+    /// it has none.
+    /// </summary>
+    private void OnItemContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not Button button || _appServices == null) return;
+        if (button.DataContext is not DockItemViewModel itemVm) return;
+        if (DataContext is not MainWindowViewModel vm) return;
+        if (itemVm.Item is DockSettingsItemModel) return;
+
+        var loc = _appServices.LocalizationService;
+        var windows = vm.OpenWindows(itemVm.ExecutablePath, itemVm.Label);
+        var entries = new List<Control>();
+        if (itemVm.ExecutablePath is { } executablePath)
+            AddJumpListEntries(entries, executablePath, itemVm.Label, windows);
+
+        entries.Add(MenuEntry(itemVm.Label, () => vm.LaunchItem(itemVm), icon: itemVm.Icon));
+        if (itemVm.Item is DockProgramItemModel)
+            entries.Add(MenuEntry(loc.Text("contextMenu.runAsAdministrator"),
+                () => vm.RunAsAdministrator(itemVm.Item), GlyphAdministrator));
+        if (DockItemActionService.HasFileLocation(itemVm.Item))
+            entries.Add(MenuEntry(loc.Text("contextMenu.openFileLocation"),
+                () => vm.OpenFileLocation(itemVm.Item), GlyphFolder));
+        entries.Add(MenuEntry(loc.Text("contextMenu.unpin"), () =>
+        {
+            if (vm.UnpinItem(itemVm))
+                SettingsWindow.RefreshItemsIfOpen();
+        }, GlyphUnpin));
+        AddCloseEntry(entries, windows);
+
+        ShowContextMenu(button, entries);
+    }
+
+    /// <summary>Right click on an unpinned running app: jump list, then launch, elevate, locate, pin, close.</summary>
+    private void OnRunningAppContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not Button button || _appServices == null) return;
+        if (button.DataContext is not RunningAppViewModel app) return;
+        if (DataContext is not MainWindowViewModel vm) return;
+
+        var loc = _appServices.LocalizationService;
+        var programItem = new DockProgramItemModel(app.Label, app.ExecutablePath);
+        var windows = vm.OpenWindows(app.ExecutablePath, app.Label);
+        var entries = new List<Control>();
+        AddJumpListEntries(entries, app.ExecutablePath, app.Label, windows);
+
+        entries.Add(MenuEntry(app.Label, () => vm.LaunchRunningApp(app), icon: app.Icon));
+        entries.Add(MenuEntry(loc.Text("contextMenu.runAsAdministrator"),
+            () => vm.RunAsAdministrator(programItem), GlyphAdministrator));
+        entries.Add(MenuEntry(loc.Text("contextMenu.openFileLocation"),
+            () => vm.OpenFileLocation(programItem), GlyphFolder));
+        entries.Add(MenuEntry(loc.Text("contextMenu.pin"), () =>
+        {
+            if (vm.PinRunningApp(app))
+                SettingsWindow.RefreshItemsIfOpen();
+        }, GlyphPin));
+        AddCloseEntry(entries, windows);
+
+        ShowContextMenu(button, entries);
+    }
+
+    /// <summary>
+    /// Adds the app's jump list as on the taskbar: a gray header per category,
+    /// its destinations, and a separator before the dock's own entries.
+    /// </summary>
+    private void AddJumpListEntries(List<Control> entries, string executablePath, string label,
+        List<WindowInfo> windows)
+    {
+        if (_appServices == null) return;
+        var jumpLists = _appServices.JumpListService;
+        IReadOnlyList<JumpListCategory> categories;
+        try
+        {
+            IntPtr window = windows.Count > 0 ? windows[0].Handle : IntPtr.Zero;
+            categories = jumpLists.Load(executablePath, label, window);
+        }
+        catch (Exception)
+        {
+            return; // a broken jump list must never block the dock's own menu
+        }
+        if (categories.Count == 0) return;
+
+        var loc = _appServices.LocalizationService;
+        foreach (var category in categories)
+        {
+            string title = category.Kind switch
+            {
+                JumpListCategoryKind.Recent => loc.Text("jumpList.recent"),
+                JumpListCategoryKind.Frequent => loc.Text("jumpList.frequent"),
+                JumpListCategoryKind.Tasks => loc.Text("jumpList.tasks"),
+                _ => category.Title
+            };
+            entries.Add(new MenuItem { Header = title, IsEnabled = false, FontSize = 11 });
+
+            foreach (var entry in category.Entries)
+            {
+                if (entry.IsSeparator)
+                {
+                    entries.Add(new Separator());
+                    continue;
+                }
+                var item = MenuEntry(entry.Title, () => jumpLists.Open(entry, executablePath),
+                    icon: IconLoader.LoadFromFile(jumpLists.ResolveIcon(entry)));
+                if (!entry.IsLink)
+                    ToolTip.SetTip(item, entry.TargetPath);
+                entries.Add(item);
+            }
+        }
+        entries.Add(new Separator());
+    }
+
+    /// <summary>"Close window" for one open window, "Close all windows" for several, nothing when closed.</summary>
+    private void AddCloseEntry(List<Control> entries, List<WindowInfo> windows)
+    {
+        if (_appServices is not { } services || windows.Count == 0) return;
+        string key = windows.Count == 1 ? "contextMenu.closeWindow" : "contextMenu.closeAllWindows";
+        entries.Add(MenuEntry(services.LocalizationService.Text(key), () =>
+        {
+            foreach (var window in windows)
+                services.WindowPreviewService.Close(window);
+        }, GlyphClose));
+    }
+
+    // Segoe Fluent Icons glyphs (Segoe MDL2 Assets fallback), as on the taskbar menu.
+    private const string GlyphAdministrator = "";
+    private const string GlyphFolder = "";
+    private const string GlyphPin = "";
+    private const string GlyphUnpin = "";
+    private const string GlyphClose = "";
+    private static readonly FontFamily GlyphFont = new("Segoe Fluent Icons, Segoe MDL2 Assets");
+
+    private static MenuItem MenuEntry(string header, Action action, string? glyph = null, IImage? icon = null)
+    {
+        // Long destination names are cut with an ellipsis, as on the taskbar.
+        var entry = new MenuItem
+        {
+            Header = new TextBlock { Text = header, MaxWidth = 240, TextTrimming = TextTrimming.CharacterEllipsis }
+        };
+        if (icon != null)
+            entry.Icon = new Image { Source = icon, Width = 14, Height = 14 };
+        else if (glyph != null)
+            entry.Icon = new TextBlock
+            {
+                Text = glyph,
+                FontFamily = GlyphFont,
+                FontSize = 12,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+        // Run after the menu has closed: unpinning rebuilds the dock items,
+        // which removes the button the menu is still anchored to.
+        entry.Click += (_, _) => Dispatcher.UIThread.Post(action);
+        return entry;
+    }
+
+    /// <summary>
+    /// Paints the context menu like the dock bar — its color, transparency and
+    /// corner rounding — in a compact size. Text is light on dark dock colors
+    /// and dark on light ones. The Fluent theme's menu brushes and paddings are
+    /// overridden as resources scoped to this menu only.
+    /// </summary>
+    private void ApplyDockStyle(ContextMenu menu)
+    {
+        if (_appServices == null) return;
+        Color dock = DockColor();
+        byte r = dock.R, g = dock.G, b = dock.B;
+
+        bool darkDock = (0.299 * r + 0.587 * g + 0.114 * b) < 140;
+        Color text = darkDock ? Colors.White : Color.FromRgb(0x1A, 0x1A, 0x1A);
+        Color Tint(byte a) => Color.FromArgb(a, text.R, text.G, text.B);
+
+        menu.Background = new SolidColorBrush(dock);
+        menu.BorderBrush = new SolidColorBrush(Tint(0x30));
+        menu.BorderThickness = new Thickness(1);
+        // Windows 11 menu corners: the acrylic backdrop fills the popup's
+        // rectangle and DWM rounds it to this radius (see ShowContextMenu).
+        menu.CornerRadius = new CornerRadius(MenuCornerRadius);
+        menu.Padding = new Thickness(3);
+        menu.FontSize = 12;
+        // Subpixel (ClearType) text blends glyph edges with what the window
+        // itself draws behind them; over the transparent acrylic background
+        // that leaves a dark fringe around the letters, most visible over
+        // light content. Grayscale antialiasing keeps the text clean.
+        RenderOptions.SetTextRenderingMode(menu, TextRenderingMode.Antialias);
+
+        var resources = menu.Resources;
+        resources["MenuFlyoutItemForeground"] = new SolidColorBrush(text);
+        resources["MenuFlyoutItemForegroundPointerOver"] = new SolidColorBrush(text);
+        resources["MenuFlyoutItemForegroundPressed"] = new SolidColorBrush(text);
+        resources["MenuFlyoutItemForegroundDisabled"] = new SolidColorBrush(Tint(0x99));
+        resources["MenuFlyoutItemBackgroundPointerOver"] = new SolidColorBrush(Tint(0x26));
+        resources["MenuFlyoutItemBackgroundPressed"] = new SolidColorBrush(Tint(0x18));
+        resources["MenuFlyoutItemBackgroundDisabled"] = Brushes.Transparent;
+        resources["SystemControlForegroundBaseMediumLowBrush"] = new SolidColorBrush(Tint(0x33));
+        resources["MenuFlyoutItemThemePaddingNarrow"] = new Thickness(8, 4, 10, 5);
+        resources["MenuFlyoutSeparatorThemePadding"] = new Thickness(-3, 2, -3, 2);
+        resources["MenuIconPresenterMargin"] = new Thickness(0, 0, 10, 0);
+    }
+
+    /// <summary>The dock's color with its transparency, shared by the dock popups (menu, calendar).</summary>
+    private Color DockColor()
+    {
+        var appearance = _appServices!.AppearanceService;
+        var parts = appearance.GetDockColorRGB()
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        byte Channel(int i) => parts.Length > i && byte.TryParse(parts[i], out var v) ? v : (byte)0;
+        byte alpha = (byte)Math.Clamp(appearance.GetDockTransparencyPercentage() / 100.0 * 255, 0, 255);
+        return Color.FromArgb(alpha, Channel(0), Channel(1), Channel(2));
+    }
+
+    /// <summary>
+    /// Window chrome shared by the dock popups. The dock lives in the desktop
+    /// layer, and so would its popups: a window covering the area above the
+    /// dock would hide them, so they are kept topmost, like the taskbar's.
+    /// Windows 11 acrylic: the system blurs what is behind the popup and tints
+    /// it with the dock's color; the tint's opacity is the "acrylic intensity"
+    /// setting, lower values letting more of the blurred background show
+    /// through. DWM rounds the popup window so the blur follows its corners.
+    /// Returns true when acrylic is on, so the popup's own background must
+    /// step aside to not apply the tint twice; when the system refuses it the
+    /// dock-colored background stays.
+    /// </summary>
+    private bool ApplyPopupChrome(IntPtr hwnd, Color tint)
+    {
+        if (hwnd == IntPtr.Zero) return false;
+        User32.SetWindowPos(hwnd, Win32Constants.HWND_TOPMOST, 0, 0, 0, 0,
+            Win32Constants.SWP_NOMOVE | Win32Constants.SWP_NOSIZE | Win32Constants.SWP_NOACTIVATE);
+        DwmThumbnailInterop.SetWindowAttribute(hwnd, DwmWindowCornerPreference, DwmCornerRound);
+        byte intensity = (byte)Math.Round(
+            (_appServices?.AppearanceService.GetMenuAcrylicIntensity() ?? 40) / 100.0 * 255);
+        return AcrylicBackdrop.Enable(hwnd, intensity, tint.R, tint.G, tint.B);
+    }
+
+    private const int DwmWindowCornerPreference = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
+    private const int DwmCornerRound = 2;             // DWMWCP_ROUND (8 px, Windows 11)
+    private const double MenuCornerRadius = 8;
+
+    private void ShowContextMenu(Control anchor, List<Control> entries)
+    {
+        // The taskbar drops the preview at once when its menu opens (no fade).
+        ++_previewRequestId;
+        _previewPopup?.HideNow();
+        _hoveredButton = null;
+        _openContextMenu?.Close();
+        CloseCalendar();
+
+        bool vertical = _appServices?.AppearanceService.GetVerticalDock() == true;
+        var menu = new ContextMenu
+        {
+            // Outside the dock bar, like the taskbar menu. The popup flips to
+            // the opposite side when the screen edge leaves no room.
+            Placement = vertical ? PlacementMode.Right : PlacementMode.Top,
+            ItemsSource = entries
+        };
+        ApplyDockStyle(menu);
+        menu.Closed += (_, _) =>
+        {
+            if (_openContextMenu != menu) return;
+            _openContextMenu = null;
+            _contextMenuHwnd = IntPtr.Zero;
+            _contextMenuWatch.Stop();
+        };
+        _openContextMenu = menu;
+        menu.Open(anchor);
+
+        var popupRoot = TopLevel.GetTopLevel(menu);
+        _contextMenuHwnd = popupRoot?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (menu.Background is ISolidColorBrush { Color: var tint }
+            && ApplyPopupChrome(_contextMenuHwnd, tint))
+            menu.Background = Brushes.Transparent;
+
+        _contextMenuForeground = User32.GetForegroundWindow();
+        _contextMenuWatch.Start();
+    }
+
+    // --- Calendar (click on the clock) ---
+
+    private IntPtr _calendarHwnd;
+    private IntPtr _calendarForeground;
+    private readonly DispatcherTimer _calendarWatch = new() { Interval = TimeSpan.FromMilliseconds(40) };
+    private const double CalendarGap = 10;
+
+    private void OnClockClicked(object? sender, RoutedEventArgs e)
+    {
+        if (CalendarPopup.IsOpen)
+            CloseCalendar();
+        else
+            OpenCalendar();
+    }
+
+    /// <summary>
+    /// Opens the month calendar on today, outside the dock bar like the
+    /// taskbar calendar: above a bottom dock with their right edges aligned,
+    /// below a top one, and beside a vertical dock. The popup still flips or
+    /// slides when the screen edge leaves no room.
+    /// </summary>
+    private void OpenCalendar()
+    {
+        if (_appServices == null || DataContext is not MainWindowViewModel vm) return;
+        ++_previewRequestId;
+        _previewPopup?.HideNow();
+        _hoveredButton = null;
+        _openContextMenu?.Close();
+
+        vm.Calendar.Reset(DateTime.Now);
+        Calendar.ApplyStyle(DockColor());
+
+        var screen = Screens.ScreenFromWindow(this)?.WorkingArea;
+        bool vertical = _appServices.AppearanceService.GetVerticalDock();
+        // Never wider than half the dock's length.
+        Calendar.FitTo((vertical ? DockBar.Bounds.Height : DockBar.Bounds.Width) / 2);
+        bool lowerHalf = screen is not { } s1 || Position.Y + Bounds.Height / 2 * RenderScaling > s1.Y + s1.Height / 2.0;
+        bool leftHalf = screen is { } s2 && Position.X + Bounds.Width / 2 * RenderScaling < s2.X + s2.Width / 2.0;
+
+        CalendarPopup.Placement = PlacementMode.AnchorAndGravity;
+        CalendarPopup.HorizontalOffset = 0;
+        CalendarPopup.VerticalOffset = 0;
+        if (!vertical)
+        {
+            CalendarPopup.PlacementAnchor = lowerHalf ? PopupAnchor.TopRight : PopupAnchor.BottomRight;
+            CalendarPopup.PlacementGravity = lowerHalf ? PopupGravity.TopLeft : PopupGravity.BottomLeft;
+            CalendarPopup.VerticalOffset = lowerHalf ? -CalendarGap : CalendarGap;
+        }
+        else
+        {
+            // The clock is the last item, at the bottom of a vertical dock.
+            CalendarPopup.PlacementAnchor = leftHalf ? PopupAnchor.BottomRight : PopupAnchor.BottomLeft;
+            CalendarPopup.PlacementGravity = leftHalf ? PopupGravity.TopRight : PopupGravity.TopLeft;
+            CalendarPopup.HorizontalOffset = leftHalf ? CalendarGap : -CalendarGap;
+        }
+        CalendarPopup.IsOpen = true;
+
+        _calendarHwnd = TopLevel.GetTopLevel(Calendar)?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (ApplyPopupChrome(_calendarHwnd, DockColor()))
+            Calendar.UseAcrylicBackground();
+        // Clicks inside the calendar must not take the focus from the user's
+        // app (Avalonia otherwise activates the popup's owner, the dock).
+        if (_calendarHwnd != IntPtr.Zero)
+        {
+            long exStyle = User32.GetWindowLongPtr(_calendarHwnd, Win32Constants.GWL_EXSTYLE).ToInt64();
+            User32.SetWindowLongPtr(_calendarHwnd, Win32Constants.GWL_EXSTYLE,
+                new IntPtr(exStyle | Win32Constants.WS_EX_NOACTIVATE));
+        }
+
+        _calendarForeground = User32.GetForegroundWindow();
+        _calendarWatch.Start();
+    }
+
+    private void CloseCalendar()
+    {
+        _calendarWatch.Stop();
+        _calendarHwnd = IntPtr.Zero;
+        CalendarPopup.IsOpen = false;
+    }
+
+    /// <summary>
+    /// Light dismiss for the calendar, polled like the context menu's (the
+    /// dock never activates): a mouse button pressed outside the calendar,
+    /// Escape, or another app coming to the foreground closes it. A press on
+    /// the clock is left to its click, which toggles the calendar closed.
+    /// </summary>
+    private void OnCalendarWatchTick(object? sender, EventArgs e)
+    {
+        if (!CalendarPopup.IsOpen)
+        {
+            _calendarWatch.Stop();
+            return;
+        }
+
+        bool buttonDown = IsKeyDown(Win32Constants.VK_LBUTTON)
+            || IsKeyDown(Win32Constants.VK_RBUTTON)
+            || IsKeyDown(Win32Constants.VK_MBUTTON);
+        IntPtr foreground = User32.GetForegroundWindow();
+        // The dock or the calendar itself taking the foreground is not the
+        // user switching apps (a press inside the popup can activate its owner).
+        bool otherApp = foreground != _calendarForeground
+            && foreground != _calendarHwnd
+            && foreground != (this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
+        if ((buttonDown && !IsPointerOverWindow(_calendarHwnd) && !ClockButton.IsPointerOver)
+            || IsKeyDown(Win32Constants.VK_ESCAPE)
+            || otherApp)
+        {
+            CloseCalendar();
+        }
+    }
+
+    /// <summary>
+    /// Light dismiss for the context menu. The dock is WS_EX_NOACTIVATE and
+    /// parented to the desktop, so it never becomes the active window and
+    /// Avalonia never sees the deactivation that normally closes a menu when
+    /// the user clicks another app. Poll instead: any mouse button pressed
+    /// outside the menu, Escape, or a foreground change closes it.
+    /// </summary>
+    private void OnContextMenuWatchTick(object? sender, EventArgs e)
+    {
+        if (_openContextMenu is not { } menu)
+        {
+            _contextMenuWatch.Stop();
+            return;
+        }
+
+        bool buttonDown = IsKeyDown(Win32Constants.VK_LBUTTON)
+            || IsKeyDown(Win32Constants.VK_RBUTTON)
+            || IsKeyDown(Win32Constants.VK_MBUTTON);
+        if ((buttonDown && !IsPointerOverContextMenu())
+            || IsKeyDown(Win32Constants.VK_ESCAPE)
+            || User32.GetForegroundWindow() != _contextMenuForeground)
+        {
+            menu.Close();
+        }
+    }
+
+    private static bool IsKeyDown(int virtualKey) =>
+        (User32.GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+
+    private bool IsPointerOverContextMenu() => IsPointerOverWindow(_contextMenuHwnd);
+
+    private static bool IsPointerOverWindow(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return false;
+        if (!User32.GetCursorPos(out POINT pt)) return false;
+        if (!User32.GetWindowRect(hwnd, out RECT rect)) return false;
+        return pt.X >= rect.Left && pt.X < rect.Right && pt.Y >= rect.Top && pt.Y < rect.Bottom;
     }
 
     private void OnPreviewLoaded(int requestId, Button button, string label,
@@ -387,6 +868,9 @@ public partial class MainWindow : Window
             return;
         if (e.Source is Visual source && source.FindAncestorOfType<Button>() != null)
             return;
+        // Presses inside the calendar popup bubble up to this window too.
+        if (e.Source is Visual popupSource && TopLevel.GetTopLevel(popupSource) != this)
+            return;
         // In STATIC mode the dock is anchored to the screen and must not be
         // dragged; dragging is only meaningful in DYNAMIC mode.
         if (_appServices == null || !_appServices.PositioningService.IsDynamicPositioning())
@@ -413,6 +897,7 @@ public partial class MainWindow : Window
         if (_appServices == null) return;
         if (!_appServices.PositioningService.IsDynamicPositioning()) return;
         _appServices.DockService.SetDockPosition(Position.X, Position.Y);
+        UpdateAppBar();
     }
 
     private void UpdateStatus(string status)
@@ -438,7 +923,9 @@ public partial class MainWindow : Window
     {
         if (_appServices == null) return;
         var currentMode = _appServices.PositioningService.GetPositioningMode();
-        if (currentMode == DockPositioningMode.STATIC && mode == DockPositioningMode.DYNAMIC)
+        // Keep the current spot: DYNAMIC starts from it, and STATIC anchors to
+        // the screen containing it instead of jumping to the primary screen.
+        if (currentMode != mode)
         {
             _appServices.DockService.SetDockPosition(Position.X, Position.Y);
         }
@@ -449,9 +936,15 @@ public partial class MainWindow : Window
     {
         PositionChanged -= OnDockPositionChanged;
         _positionPersistTimer.Stop();
+        _contextMenuWatch.Stop();
+        _openContextMenu?.Close();
+        CloseCalendar();
         HidePreview();
         if (DataContext is MainWindowViewModel vm)
             vm.Shutdown();
+        // Give the reserved screen strip back before the window goes away.
+        _appBar?.Dispose();
+        _appBar = null;
         _dockBehavior?.Dispose();
         _dockBehavior = null;
         base.OnClosed(e);

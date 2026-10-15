@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -7,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia;
 using Avalonia.Media;
+using Avalonia.Threading;
 using CedroModernDock.Core.Application;
 using CedroModernDock.Core.Models;
 using CedroModernDock.Infrastructure.Windows.Native;
@@ -38,14 +40,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public bool HasRunningApps
     {
         get => _hasRunningApps;
-        private set
-        {
-            if (SetProperty(ref _hasRunningApps, value))
-            {
-                OnPropertyChanged(nameof(ShowHorizontalSeparator));
-                OnPropertyChanged(nameof(ShowVerticalSeparator));
-            }
-        }
+        private set => SetProperty(ref _hasRunningApps, value);
     }
 
     private bool _isVerticalDock;
@@ -67,17 +62,46 @@ public partial class MainWindowViewModel : ViewModelBase
     public Avalonia.Layout.Orientation DockOrientation
         => IsVerticalDock ? Avalonia.Layout.Orientation.Vertical : Avalonia.Layout.Orientation.Horizontal;
 
-    /// <summary>Separator is only shown between pinned items and displayed unpinned running apps.</summary>
-    public bool ShowHorizontalSeparator => HasRunningApps && !IsVerticalDock;
+    /// <summary>
+    /// Separator after the pinned items. Always shown: the clock sits right
+    /// of it, after the unpinned running apps when there are any.
+    /// </summary>
+    public bool ShowHorizontalSeparator => !IsVerticalDock;
 
-    /// <summary>Separator is only shown between pinned items and displayed unpinned running apps.</summary>
-    public bool ShowVerticalSeparator => HasRunningApps && IsVerticalDock;
+    /// <summary>Vertical-dock counterpart of <see cref="ShowHorizontalSeparator"/>.</summary>
+    public bool ShowVerticalSeparator => IsVerticalDock;
 
     public int IconsSize
     {
         get => _iconsSize;
-        set => SetProperty(ref _iconsSize, value);
+        set
+        {
+            if (SetProperty(ref _iconsSize, value))
+                OnPropertyChanged(nameof(ClockFontSize));
+        }
     }
+
+    // --- Clock (Windows 11 taskbar style) ---
+
+    private readonly DispatcherTimer _clockTimer = new();
+    private string _clockTime = "";
+    private string _clockDate = "";
+    private string _clockToolTip = "";
+
+    /// <summary>24-hour time, e.g. "14:05".</summary>
+    public string ClockTime { get => _clockTime; private set => SetProperty(ref _clockTime, value); }
+
+    /// <summary>Date as DD/MM/YYYY, e.g. "15/10/2026".</summary>
+    public string ClockDate { get => _clockDate; private set => SetProperty(ref _clockDate, value); }
+
+    /// <summary>Long date in the system culture, shown on hover like the taskbar clock.</summary>
+    public string ClockToolTip { get => _clockToolTip; private set => SetProperty(ref _clockToolTip, value); }
+
+    /// <summary>Month calendar opened by clicking the clock.</summary>
+    public CalendarViewModel Calendar { get; } = new();
+
+    /// <summary>Scales with the icons (12 px at the default 48 px icons, as on the taskbar).</summary>
+    public double ClockFontSize => Math.Clamp(IconsSize / 4.0, 11, 18);
     public int Spacing { get => _spacing; set => SetProperty(ref _spacing, value); }
     public int BorderRounding
     {
@@ -106,6 +130,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public MainWindowViewModel()
     {
         LaunchCommand = new RelayCommand(_ => { });
+        UpdateClock();
     }
 
     public MainWindowViewModel(AppServices appServices)
@@ -113,6 +138,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _appServices = appServices;
         LaunchCommand = new RelayCommand(param => ExecuteItem(param));
         _appServices.LocalizationService.AddListener(UpdateDockUI);
+        UpdateClock();
     }
 
     public void Initialize()
@@ -121,6 +147,38 @@ public partial class MainWindowViewModel : ViewModelBase
         ApplyAppearance();
         UpdateDockUI();
         StartIndicatorWatcher();
+        StartClock();
+    }
+
+    private void StartClock()
+    {
+        _clockTimer.Tick += OnClockTick;
+        OnClockTick(null, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Refreshes the clock and schedules the next tick just past the next
+    /// second boundary: the minute flips on time, and a sleep/resume or a
+    /// system clock change is picked up within a second.
+    /// </summary>
+    private void OnClockTick(object? sender, EventArgs e)
+    {
+        UpdateClock();
+        _clockTimer.Stop();
+        _clockTimer.Interval = TimeSpan.FromMilliseconds(1000 - DateTime.Now.Millisecond + 20);
+        _clockTimer.Start();
+    }
+
+    /// <summary>Unchanged texts raise no PropertyChanged, so ticks within a minute cost no layout.</summary>
+    private void UpdateClock()
+    {
+        var now = DateTime.Now;
+        ClockTime = now.ToString("HH:mm", CultureInfo.InvariantCulture);
+        // Invariant culture: "/" in a format string is the culture's date
+        // separator, which is "-" in some locales (es-CL).
+        ClockDate = now.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+        ClockToolTip = now.ToString("D", CultureInfo.CurrentCulture);
+        Calendar.UpdateToday(now);
     }
 
     public void UpdateDockUI()
@@ -249,24 +307,126 @@ public partial class MainWindowViewModel : ViewModelBase
         return Color.FromRgb(r, g, b);
     }
 
+    /// <summary>
+    /// Left click, taskbar-style: a running program is brought forward (or
+    /// minimized when it already is the active window); anything else is
+    /// launched or opened.
+    /// </summary>
     private void ExecuteItem(object? param)
     {
-        if (param is DockItemViewModel itemVm && _appServices != null)
-        {
-            bool launched = _appServices.ItemActionService.Execute(
-                itemVm.Item, () => OpenSettingsAction?.Invoke());
+        if (param is not DockItemViewModel itemVm || _appServices == null) return;
 
-            if (!launched && itemVm.Item is DockProgramItemModel programItem)
-            {
-                var loc = _appServices.LocalizationService;
-                System.Windows.Forms.MessageBox.Show(
-                    loc.Text("dialog.programNotFound.message",
-                        programItem.Label, programItem.ExecutablePath),
-                    loc.Text("dialog.programNotFound.title"),
-                    System.Windows.Forms.MessageBoxButtons.OK,
-                    System.Windows.Forms.MessageBoxIcon.Warning);
-            }
+        if (itemVm.Item is DockProgramItemModel programItem
+            && _appServices.WindowPreviewService.ActivateOrMinimize(OpenWindows(programItem.ExecutablePath, programItem.Label)))
+        {
+            PreviewDismissAction?.Invoke();
+            return;
         }
+        LaunchItem(itemVm);
+    }
+
+    // --- Context-menu actions (right click on a dock item) ---
+
+    /// <summary>
+    /// Launches the item, starting a new instance even when it is already
+    /// running (taskbar: the app name entry of the menu).
+    /// </summary>
+    public void LaunchItem(DockItemViewModel itemVm)
+    {
+        if (_appServices == null) return;
+        bool launched = _appServices.ItemActionService.Execute(
+            itemVm.Item, () => OpenSettingsAction?.Invoke());
+
+        if (!launched && itemVm.Item is DockProgramItemModel programItem)
+        {
+            var loc = _appServices.LocalizationService;
+            System.Windows.Forms.MessageBox.Show(
+                loc.Text("dialog.programNotFound.message",
+                    programItem.Label, programItem.ExecutablePath),
+                loc.Text("dialog.programNotFound.title"),
+                System.Windows.Forms.MessageBoxButtons.OK,
+                System.Windows.Forms.MessageBoxIcon.Warning);
+        }
+    }
+
+    /// <summary>Left click on an unpinned running app: same taskbar behavior as pinned items.</summary>
+    public void ActivateRunningApp(RunningAppViewModel app)
+    {
+        _appServices?.WindowPreviewService.ActivateOrMinimize(OpenWindows(app.ExecutablePath, app.Label));
+        PreviewDismissAction?.Invoke();
+    }
+
+    /// <summary>Starts a new instance of an unpinned running app.</summary>
+    public void LaunchRunningApp(RunningAppViewModel app) =>
+        _appServices?.ItemActionService.Execute(
+            new DockProgramItemModel(app.Label, app.ExecutablePath), () => { });
+
+    public void RunAsAdministrator(DockItem item) =>
+        _appServices?.ItemActionService.RunAsAdministrator(item);
+
+    public void OpenFileLocation(DockItem item) =>
+        _appServices?.ItemActionService.OpenFileLocation(item);
+
+    /// <summary>
+    /// Open windows of the executable: their count drives the close entries and
+    /// the first one identifies the app for its jump list.
+    /// </summary>
+    public List<CedroModernDock.Core.Domain.WindowInfo> OpenWindows(string? executablePath, string label)
+    {
+        if (_appServices == null || string.IsNullOrEmpty(executablePath)) return new();
+        try
+        {
+            return _appServices.WindowPreviewService.LoadPreview(
+                new DockProgramItemModel(label, executablePath));
+        }
+        catch
+        {
+            return new();
+        }
+    }
+
+    public void CloseAllWindows(string? executablePath, string label) =>
+        _appServices?.WindowPreviewService.CloseAll(executablePath, label);
+
+    /// <summary>Removes a pinned item from the dock. Returns true when the dock changed.</summary>
+    public bool UnpinItem(DockItemViewModel itemVm)
+    {
+        if (_appServices == null || !_appServices.DockService.UnpinItem(itemVm.Item)) return false;
+        UpdateDockUI();
+        return true;
+    }
+
+    /// <summary>
+    /// Pins an unpinned running app, labelled with the executable's file
+    /// description ("Windows Terminal") like the taskbar does. Returns true
+    /// when the dock changed.
+    /// </summary>
+    public bool PinRunningApp(RunningAppViewModel app)
+    {
+        if (_appServices == null) return false;
+        string label = ResolveProgramLabel(app.ExecutablePath, app.Label);
+        if (!_appServices.DockService.PinProgram(label, app.ExecutablePath)) return false;
+        UpdateDockUI();
+        // Drop it from the running section now instead of on the next watcher tick.
+        if (_runningAppsByPath.Remove(app.ExecutablePath))
+        {
+            RunningApps.Remove(app);
+            HasRunningApps = RunningApps.Count > 0;
+            RepositionAction?.Invoke();
+        }
+        return true;
+    }
+
+    private static string ResolveProgramLabel(string executablePath, string fallback)
+    {
+        try
+        {
+            string? description = System.Diagnostics.FileVersionInfo.GetVersionInfo(executablePath).FileDescription;
+            if (!string.IsNullOrWhiteSpace(description))
+                return description.Trim();
+        }
+        catch { /* unreadable version info: keep the file name */ }
+        return fallback;
     }
 
     private void StartIndicatorWatcher()
@@ -297,7 +457,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var programItems = Items.Where(i => i.ShowIndicator && i.ExecutablePath != null).ToList();
         foreach (var item in programItems)
         {
-            bool isOpen = _appServices.WindowPreviewService.HasOpenWindows(item.ExecutablePath);
+            bool isOpen = _appServices.WindowPreviewService.HasOpenWindows(item.ExecutablePath, item.Label);
             Avalonia.Threading.Dispatcher.UIThread.Post(() => item.IsRunning = isOpen);
         }
     }
@@ -330,10 +490,17 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        List<string> pinnedPaths = Items
+        var pinnedPrograms = Items
             .Where(i => i.Item is DockProgramItemModel)
-            .Select(i => ((DockProgramItemModel)i.Item).ExecutablePath)
+            .Select(i => (DockProgramItemModel)i.Item)
             .ToList();
+        List<string> pinnedPaths = pinnedPrograms.Select(p => p.ExecutablePath).ToList();
+        // Pinned items started through an alias or a launcher (wt.exe, a
+        // WhatsApp launcher) own windows of another executable: the taskbar
+        // groups them by AppUserModelID, and so does the dock.
+        var pinnedAppIds = new HashSet<string>(
+            pinnedPrograms.SelectMany(p => _appServices.WindowPreviewService.AppIdsOf(p.ExecutablePath, p.Label)),
+            StringComparer.OrdinalIgnoreCase);
 
         List<CedroModernDock.Core.Domain.RunningWindowInfo> windows;
         try
@@ -347,7 +514,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var desired = windows
             .GroupBy(w => w.ExecutablePath, StringComparer.OrdinalIgnoreCase)
-            .Where(g => !IsPinned(g.Key, pinnedPaths))
+            .Where(g => !IsPinned(g.Key, pinnedPaths)
+                && !g.Any(w => w.AppId != null && pinnedAppIds.Contains(w.AppId)))
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
@@ -472,5 +640,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _indicatorCts?.Cancel();
         _indicatorCts?.Dispose();
         _indicatorCts = null;
+        _clockTimer.Stop();
+        _clockTimer.Tick -= OnClockTick;
     }
 }
