@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives.PopupPositioning;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -67,6 +68,7 @@ public partial class MainWindow : Window
             RefreshPreviewAfterClose();
         };
         _contextMenuWatch.Tick += OnContextMenuWatchTick;
+        _calendarWatch.Tick += OnCalendarWatchTick;
     }
 
     private bool IsPointerOverPreview()
@@ -171,7 +173,7 @@ public partial class MainWindow : Window
     private void OnItemPointerEntered(object? sender, PointerEventArgs e)
     {
         if (sender is not Button button || _appServices == null) return;
-        if (_openContextMenu != null) return;
+        if (_openContextMenu != null || CalendarPopup.IsOpen) return;
         if (button.DataContext is not DockItemViewModel vm || vm.Item is not DockProgramItemModel item)
             return;
 
@@ -201,7 +203,7 @@ public partial class MainWindow : Window
     private void OnRunningAppPointerEntered(object? sender, PointerEventArgs e)
     {
         if (sender is not Button button || _appServices == null) return;
-        if (_openContextMenu != null) return;
+        if (_openContextMenu != null || CalendarPopup.IsOpen) return;
         if (button.DataContext is not RunningAppViewModel vm) return;
 
         _hoveredButton = button;
@@ -438,19 +440,14 @@ public partial class MainWindow : Window
     private void ApplyDockStyle(ContextMenu menu)
     {
         if (_appServices == null) return;
-        var appearance = _appServices.AppearanceService;
-
-        var parts = appearance.GetDockColorRGB()
-            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        byte Channel(int i) => parts.Length > i && byte.TryParse(parts[i], out var v) ? v : (byte)0;
-        byte r = Channel(0), g = Channel(1), b = Channel(2);
-        byte alpha = (byte)Math.Clamp(appearance.GetDockTransparencyPercentage() / 100.0 * 255, 0, 255);
+        Color dock = DockColor();
+        byte r = dock.R, g = dock.G, b = dock.B;
 
         bool darkDock = (0.299 * r + 0.587 * g + 0.114 * b) < 140;
         Color text = darkDock ? Colors.White : Color.FromRgb(0x1A, 0x1A, 0x1A);
         Color Tint(byte a) => Color.FromArgb(a, text.R, text.G, text.B);
 
-        menu.Background = new SolidColorBrush(Color.FromArgb(alpha, r, g, b));
+        menu.Background = new SolidColorBrush(dock);
         menu.BorderBrush = new SolidColorBrush(Tint(0x30));
         menu.BorderThickness = new Thickness(1);
         // Windows 11 menu corners: the acrylic backdrop fills the popup's
@@ -478,6 +475,40 @@ public partial class MainWindow : Window
         resources["MenuIconPresenterMargin"] = new Thickness(0, 0, 10, 0);
     }
 
+    /// <summary>The dock's color with its transparency, shared by the dock popups (menu, calendar).</summary>
+    private Color DockColor()
+    {
+        var appearance = _appServices!.AppearanceService;
+        var parts = appearance.GetDockColorRGB()
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        byte Channel(int i) => parts.Length > i && byte.TryParse(parts[i], out var v) ? v : (byte)0;
+        byte alpha = (byte)Math.Clamp(appearance.GetDockTransparencyPercentage() / 100.0 * 255, 0, 255);
+        return Color.FromArgb(alpha, Channel(0), Channel(1), Channel(2));
+    }
+
+    /// <summary>
+    /// Window chrome shared by the dock popups. The dock lives in the desktop
+    /// layer, and so would its popups: a window covering the area above the
+    /// dock would hide them, so they are kept topmost, like the taskbar's.
+    /// Windows 11 acrylic: the system blurs what is behind the popup and tints
+    /// it with the dock's color; the tint's opacity is the "acrylic intensity"
+    /// setting, lower values letting more of the blurred background show
+    /// through. DWM rounds the popup window so the blur follows its corners.
+    /// Returns true when acrylic is on, so the popup's own background must
+    /// step aside to not apply the tint twice; when the system refuses it the
+    /// dock-colored background stays.
+    /// </summary>
+    private bool ApplyPopupChrome(IntPtr hwnd, Color tint)
+    {
+        if (hwnd == IntPtr.Zero) return false;
+        User32.SetWindowPos(hwnd, Win32Constants.HWND_TOPMOST, 0, 0, 0, 0,
+            Win32Constants.SWP_NOMOVE | Win32Constants.SWP_NOSIZE | Win32Constants.SWP_NOACTIVATE);
+        DwmThumbnailInterop.SetWindowAttribute(hwnd, DwmWindowCornerPreference, DwmCornerRound);
+        byte intensity = (byte)Math.Round(
+            (_appServices?.AppearanceService.GetMenuAcrylicIntensity() ?? 40) / 100.0 * 255);
+        return AcrylicBackdrop.Enable(hwnd, intensity, tint.R, tint.G, tint.B);
+    }
+
     private const int DwmWindowCornerPreference = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
     private const int DwmCornerRound = 2;             // DWMWCP_ROUND (8 px, Windows 11)
     private const double MenuCornerRadius = 8;
@@ -489,6 +520,7 @@ public partial class MainWindow : Window
         _previewPopup?.HideNow();
         _hoveredButton = null;
         _openContextMenu?.Close();
+        CloseCalendar();
 
         bool vertical = _appServices?.AppearanceService.GetVerticalDock() == true;
         var menu = new ContextMenu
@@ -509,34 +541,111 @@ public partial class MainWindow : Window
         _openContextMenu = menu;
         menu.Open(anchor);
 
-        // The dock lives in the desktop layer, and so would its popups: a
-        // window covering the area above the dock would hide the menu. Keep
-        // it topmost, like the taskbar menu.
         var popupRoot = TopLevel.GetTopLevel(menu);
         _contextMenuHwnd = popupRoot?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
-        if (_contextMenuHwnd != IntPtr.Zero)
-            User32.SetWindowPos(_contextMenuHwnd, Win32Constants.HWND_TOPMOST, 0, 0, 0, 0,
-                Win32Constants.SWP_NOMOVE | Win32Constants.SWP_NOSIZE | Win32Constants.SWP_NOACTIVATE);
-
-        // Windows 11 acrylic: the system blurs what is behind the menu and
-        // tints it with the dock's color and transparency; the menu's own
-        // background then steps aside so the tint is not applied twice. When
-        // the system refuses acrylic the dock-colored background stays. DWM
-        // rounds the popup window so the blur follows the menu's corners.
-        if (_contextMenuHwnd != IntPtr.Zero)
-        {
-            DwmThumbnailInterop.SetWindowAttribute(_contextMenuHwnd, DwmWindowCornerPreference, DwmCornerRound);
-            // The tint's opacity is the "menu acrylic intensity" setting: lower
-            // values let more of the blurred background show through.
-            byte intensity = (byte)Math.Round(
-                (_appServices?.AppearanceService.GetMenuAcrylicIntensity() ?? 40) / 100.0 * 255);
-            if (menu.Background is ISolidColorBrush { Color: var tint }
-                && AcrylicBackdrop.Enable(_contextMenuHwnd, intensity, tint.R, tint.G, tint.B))
-                menu.Background = Brushes.Transparent;
-        }
+        if (menu.Background is ISolidColorBrush { Color: var tint }
+            && ApplyPopupChrome(_contextMenuHwnd, tint))
+            menu.Background = Brushes.Transparent;
 
         _contextMenuForeground = User32.GetForegroundWindow();
         _contextMenuWatch.Start();
+    }
+
+    // --- Calendar (click on the clock) ---
+
+    private IntPtr _calendarHwnd;
+    private IntPtr _calendarForeground;
+    private readonly DispatcherTimer _calendarWatch = new() { Interval = TimeSpan.FromMilliseconds(40) };
+    private const double CalendarGap = 10;
+
+    private void OnClockClicked(object? sender, RoutedEventArgs e)
+    {
+        if (CalendarPopup.IsOpen)
+            CloseCalendar();
+        else
+            OpenCalendar();
+    }
+
+    /// <summary>
+    /// Opens the month calendar on today, outside the dock bar like the
+    /// taskbar calendar: above a bottom dock with their right edges aligned,
+    /// below a top one, and beside a vertical dock. The popup still flips or
+    /// slides when the screen edge leaves no room.
+    /// </summary>
+    private void OpenCalendar()
+    {
+        if (_appServices == null || DataContext is not MainWindowViewModel vm) return;
+        ++_previewRequestId;
+        _previewPopup?.HideNow();
+        _hoveredButton = null;
+        _openContextMenu?.Close();
+
+        vm.Calendar.Reset(DateTime.Now);
+        Calendar.ApplyStyle(DockColor());
+
+        var screen = Screens.ScreenFromWindow(this)?.WorkingArea;
+        bool vertical = _appServices.AppearanceService.GetVerticalDock();
+        // Never wider than half the dock's length.
+        Calendar.FitTo((vertical ? DockBar.Bounds.Height : DockBar.Bounds.Width) / 2);
+        bool lowerHalf = screen is not { } s1 || Position.Y + Bounds.Height / 2 * RenderScaling > s1.Y + s1.Height / 2.0;
+        bool leftHalf = screen is { } s2 && Position.X + Bounds.Width / 2 * RenderScaling < s2.X + s2.Width / 2.0;
+
+        CalendarPopup.Placement = PlacementMode.AnchorAndGravity;
+        CalendarPopup.HorizontalOffset = 0;
+        CalendarPopup.VerticalOffset = 0;
+        if (!vertical)
+        {
+            CalendarPopup.PlacementAnchor = lowerHalf ? PopupAnchor.TopRight : PopupAnchor.BottomRight;
+            CalendarPopup.PlacementGravity = lowerHalf ? PopupGravity.TopLeft : PopupGravity.BottomLeft;
+            CalendarPopup.VerticalOffset = lowerHalf ? -CalendarGap : CalendarGap;
+        }
+        else
+        {
+            // The clock is the last item, at the bottom of a vertical dock.
+            CalendarPopup.PlacementAnchor = leftHalf ? PopupAnchor.BottomRight : PopupAnchor.BottomLeft;
+            CalendarPopup.PlacementGravity = leftHalf ? PopupGravity.TopRight : PopupGravity.TopLeft;
+            CalendarPopup.HorizontalOffset = leftHalf ? CalendarGap : -CalendarGap;
+        }
+        CalendarPopup.IsOpen = true;
+
+        _calendarHwnd = TopLevel.GetTopLevel(Calendar)?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (ApplyPopupChrome(_calendarHwnd, DockColor()))
+            Calendar.UseAcrylicBackground();
+
+        _calendarForeground = User32.GetForegroundWindow();
+        _calendarWatch.Start();
+    }
+
+    private void CloseCalendar()
+    {
+        _calendarWatch.Stop();
+        _calendarHwnd = IntPtr.Zero;
+        CalendarPopup.IsOpen = false;
+    }
+
+    /// <summary>
+    /// Light dismiss for the calendar, polled like the context menu's (the
+    /// dock never activates): a mouse button pressed outside the calendar,
+    /// Escape, or a foreground change closes it. A press on the clock is left
+    /// to its click, which toggles the calendar closed.
+    /// </summary>
+    private void OnCalendarWatchTick(object? sender, EventArgs e)
+    {
+        if (!CalendarPopup.IsOpen)
+        {
+            _calendarWatch.Stop();
+            return;
+        }
+
+        bool buttonDown = IsKeyDown(Win32Constants.VK_LBUTTON)
+            || IsKeyDown(Win32Constants.VK_RBUTTON)
+            || IsKeyDown(Win32Constants.VK_MBUTTON);
+        if ((buttonDown && !IsPointerOverWindow(_calendarHwnd) && !ClockButton.IsPointerOver)
+            || IsKeyDown(Win32Constants.VK_ESCAPE)
+            || User32.GetForegroundWindow() != _calendarForeground)
+        {
+            CloseCalendar();
+        }
     }
 
     /// <summary>
@@ -568,11 +677,13 @@ public partial class MainWindow : Window
     private static bool IsKeyDown(int virtualKey) =>
         (User32.GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 
-    private bool IsPointerOverContextMenu()
+    private bool IsPointerOverContextMenu() => IsPointerOverWindow(_contextMenuHwnd);
+
+    private static bool IsPointerOverWindow(IntPtr hwnd)
     {
-        if (_contextMenuHwnd == IntPtr.Zero) return false;
+        if (hwnd == IntPtr.Zero) return false;
         if (!User32.GetCursorPos(out POINT pt)) return false;
-        if (!User32.GetWindowRect(_contextMenuHwnd, out RECT rect)) return false;
+        if (!User32.GetWindowRect(hwnd, out RECT rect)) return false;
         return pt.X >= rect.Left && pt.X < rect.Right && pt.Y >= rect.Top && pt.Y < rect.Bottom;
     }
 
@@ -743,6 +854,9 @@ public partial class MainWindow : Window
             return;
         if (e.Source is Visual source && source.FindAncestorOfType<Button>() != null)
             return;
+        // Presses inside the calendar popup bubble up to this window too.
+        if (e.Source is Visual popupSource && TopLevel.GetTopLevel(popupSource) != this)
+            return;
         // In STATIC mode the dock is anchored to the screen and must not be
         // dragged; dragging is only meaningful in DYNAMIC mode.
         if (_appServices == null || !_appServices.PositioningService.IsDynamicPositioning())
@@ -810,6 +924,7 @@ public partial class MainWindow : Window
         _positionPersistTimer.Stop();
         _contextMenuWatch.Stop();
         _openContextMenu?.Close();
+        CloseCalendar();
         HidePreview();
         if (DataContext is MainWindowViewModel vm)
             vm.Shutdown();

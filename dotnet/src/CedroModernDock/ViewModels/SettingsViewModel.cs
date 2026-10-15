@@ -86,7 +86,7 @@ public partial class SettingsViewModel : ViewModelBase
     public int Transparency { get => _transparency; set => SetProperty(ref _transparency, value); }
 
     private int _menuAcrylicIntensity = 40;
-    /// <summary>Opacity of the dock-colored tint over the context menu's acrylic blur.</summary>
+    /// <summary>Opacity of the dock-colored tint over the acrylic blur of the context menu and the clock calendar.</summary>
     public int MenuAcrylicIntensity { get => _menuAcrylicIntensity; set => SetProperty(ref _menuAcrylicIntensity, value); }
 
     private bool _reserveScreenSpace = true;

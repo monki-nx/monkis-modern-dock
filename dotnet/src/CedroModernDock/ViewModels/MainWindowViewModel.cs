@@ -97,6 +97,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Long date in the system culture, shown on hover like the taskbar clock.</summary>
     public string ClockToolTip { get => _clockToolTip; private set => SetProperty(ref _clockToolTip, value); }
 
+    /// <summary>Month calendar opened by clicking the clock.</summary>
+    public CalendarViewModel Calendar { get; } = new();
+
     /// <summary>Scales with the icons (12 px at the default 48 px icons, as on the taskbar).</summary>
     public double ClockFontSize => Math.Clamp(IconsSize / 4.0, 11, 18);
     public int Spacing { get => _spacing; set => SetProperty(ref _spacing, value); }
@@ -175,6 +178,7 @@ public partial class MainWindowViewModel : ViewModelBase
         // separator, which is "-" in some locales (es-CL).
         ClockDate = now.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
         ClockToolTip = now.ToString("D", CultureInfo.CurrentCulture);
+        Calendar.UpdateToday(now);
     }
 
     public void UpdateDockUI()
