@@ -611,6 +611,14 @@ public partial class MainWindow : Window
         _calendarHwnd = TopLevel.GetTopLevel(Calendar)?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
         if (ApplyPopupChrome(_calendarHwnd, DockColor()))
             Calendar.UseAcrylicBackground();
+        // Clicks inside the calendar must not take the focus from the user's
+        // app (Avalonia otherwise activates the popup's owner, the dock).
+        if (_calendarHwnd != IntPtr.Zero)
+        {
+            long exStyle = User32.GetWindowLongPtr(_calendarHwnd, Win32Constants.GWL_EXSTYLE).ToInt64();
+            User32.SetWindowLongPtr(_calendarHwnd, Win32Constants.GWL_EXSTYLE,
+                new IntPtr(exStyle | Win32Constants.WS_EX_NOACTIVATE));
+        }
 
         _calendarForeground = User32.GetForegroundWindow();
         _calendarWatch.Start();
@@ -626,8 +634,8 @@ public partial class MainWindow : Window
     /// <summary>
     /// Light dismiss for the calendar, polled like the context menu's (the
     /// dock never activates): a mouse button pressed outside the calendar,
-    /// Escape, or a foreground change closes it. A press on the clock is left
-    /// to its click, which toggles the calendar closed.
+    /// Escape, or another app coming to the foreground closes it. A press on
+    /// the clock is left to its click, which toggles the calendar closed.
     /// </summary>
     private void OnCalendarWatchTick(object? sender, EventArgs e)
     {
@@ -640,9 +648,15 @@ public partial class MainWindow : Window
         bool buttonDown = IsKeyDown(Win32Constants.VK_LBUTTON)
             || IsKeyDown(Win32Constants.VK_RBUTTON)
             || IsKeyDown(Win32Constants.VK_MBUTTON);
+        IntPtr foreground = User32.GetForegroundWindow();
+        // The dock or the calendar itself taking the foreground is not the
+        // user switching apps (a press inside the popup can activate its owner).
+        bool otherApp = foreground != _calendarForeground
+            && foreground != _calendarHwnd
+            && foreground != (this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
         if ((buttonDown && !IsPointerOverWindow(_calendarHwnd) && !ClockButton.IsPointerOver)
             || IsKeyDown(Win32Constants.VK_ESCAPE)
-            || User32.GetForegroundWindow() != _calendarForeground)
+            || otherApp)
         {
             CloseCalendar();
         }

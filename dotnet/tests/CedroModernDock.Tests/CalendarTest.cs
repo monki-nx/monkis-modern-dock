@@ -47,6 +47,17 @@ public class CalendarMonthTest
     }
 
     [Fact]
+    public void Months_AreTheYearThenFourOfTheNext()
+    {
+        var months = CalendarMonth.Months(2026);
+
+        Assert.Equal(16, months.Count);
+        Assert.Equal(new DateTime(2026, 1, 1), months[0]);
+        Assert.Equal(new DateTime(2026, 12, 1), months[11]);
+        Assert.Equal(new DateTime(2027, 4, 1), months[15]);
+    }
+
+    [Fact]
     public void WeekDays_WrapAroundTheWeek()
     {
         var weekDays = CalendarMonth.WeekDays(DayOfWeek.Monday);
@@ -135,12 +146,12 @@ public class CalendarViewModelTest
         var calendar = new CalendarViewModel(Today, English);
         calendar.Select(new DateTime(2026, 10, 20));
 
-        calendar.NextMonthCommand.Execute(null);
+        calendar.NextCommand.Execute(null);
         Assert.Equal("November 2026", calendar.MonthTitle);
         Assert.DoesNotContain(calendar.Days, d => d.IsToday);
 
-        calendar.PreviousMonthCommand.Execute(null);
-        calendar.PreviousMonthCommand.Execute(null);
+        calendar.PreviousCommand.Execute(null);
+        calendar.PreviousCommand.Execute(null);
         Assert.Equal("September 2026", calendar.MonthTitle);
 
         calendar.GoToTodayCommand.Execute(null);
@@ -153,7 +164,7 @@ public class CalendarViewModelTest
     {
         var calendar = new CalendarViewModel(Today, English);
         calendar.Select(new DateTime(2026, 10, 20));
-        calendar.NextMonthCommand.Execute(null);
+        calendar.NextCommand.Execute(null);
 
         calendar.Reset(Today);
 
@@ -172,5 +183,78 @@ public class CalendarViewModelTest
         Assert.Equal(new DateTime(2026, 10, 16), Assert.Single(calendar.Days, d => d.IsToday).Date);
         Assert.Equal(new DateTime(2026, 10, 20), Assert.Single(calendar.Days, d => d.IsSelected).Date);
         Assert.Equal("Friday, 16 October", calendar.HeaderText);
+    }
+
+    [Fact]
+    public void ShowYear_OpensTheYearOfTheShownMonth_WithTodaysMonthMarked()
+    {
+        var calendar = new CalendarViewModel(Today, English);
+        calendar.NextCommand.Execute(null);
+        calendar.NextCommand.Execute(null);
+        calendar.NextCommand.Execute(null); // January 2027
+
+        calendar.ShowYearCommand.Execute(null);
+
+        Assert.True(calendar.IsYearView);
+        Assert.Equal("2027", calendar.YearTitle);
+        Assert.Equal(16, calendar.Months.Count);
+        Assert.DoesNotContain(calendar.Months, m => m.IsCurrent);
+
+        calendar.PreviousCommand.Execute(null);
+        Assert.Equal("2026", calendar.YearTitle);
+        var current = Assert.Single(calendar.Months, m => m.IsCurrent);
+        Assert.Equal(new DateTime(2026, 10, 1), current.Date);
+        Assert.Equal("Oct", current.Text);
+    }
+
+    [Fact]
+    public void YearView_DimsTheNextYearsMonths()
+    {
+        var calendar = new CalendarViewModel(Today, English);
+        calendar.ShowYearCommand.Execute(null);
+
+        Assert.All(calendar.Months.Take(12), m => Assert.True(m.IsInYear));
+        Assert.All(calendar.Months.Skip(12), m => Assert.False(m.IsInYear));
+        Assert.Equal("Jan", calendar.Months[12].Text);
+    }
+
+    [Fact]
+    public void MonthNames_FollowTheCulture()
+    {
+        var calendar = new CalendarViewModel(Today, Spanish);
+        calendar.ShowYearCommand.Execute(null);
+
+        Assert.Equal("Ene", calendar.Months[0].Text);
+        Assert.Equal("Oct", calendar.Months[9].Text);
+    }
+
+    [Fact]
+    public void SelectMonth_OpensItsDays_EvenFromTheNextYear()
+    {
+        var calendar = new CalendarViewModel(Today, English);
+        calendar.Select(new DateTime(2026, 10, 20));
+        calendar.ShowYearCommand.Execute(null);
+
+        calendar.SelectMonth(new DateTime(2027, 2, 1));
+
+        Assert.False(calendar.IsYearView);
+        Assert.Equal("February 2027", calendar.MonthTitle);
+        Assert.Equal(new DateTime(2027, 2, 1), calendar.Month);
+    }
+
+    [Fact]
+    public void GoToToday_AndReset_LeaveTheYearView()
+    {
+        var calendar = new CalendarViewModel(Today, English);
+        calendar.ShowYearCommand.Execute(null);
+        calendar.NextCommand.Execute(null);
+
+        calendar.GoToTodayCommand.Execute(null);
+        Assert.False(calendar.IsYearView);
+        Assert.Equal("October 2026", calendar.MonthTitle);
+
+        calendar.ShowYearCommand.Execute(null);
+        calendar.Reset(Today);
+        Assert.False(calendar.IsYearView);
     }
 }

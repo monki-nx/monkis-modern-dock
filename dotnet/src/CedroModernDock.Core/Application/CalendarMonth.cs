@@ -24,6 +24,23 @@ public static class CalendarMonth
         return days;
     }
 
+    public const int MonthColumns = 4;
+    public const int MonthRows = 4;
+
+    /// <summary>
+    /// The 16 months of the year view, as on the taskbar calendar: the 12
+    /// months of <paramref name="year"/> followed by the first 4 of the next
+    /// year (drawn dimmed). Each is the first day of its month.
+    /// </summary>
+    public static IReadOnlyList<DateTime> Months(int year)
+    {
+        var first = new DateTime(year, 1, 1);
+        var months = new DateTime[MonthColumns * MonthRows];
+        for (int i = 0; i < months.Length; i++)
+            months[i] = first.AddMonths(i);
+        return months;
+    }
+
     /// <summary>The 7 week days in display order, starting on <paramref name="firstDayOfWeek"/>.</summary>
     public static IReadOnlyList<DayOfWeek> WeekDays(DayOfWeek firstDayOfWeek)
     {

@@ -76,11 +76,18 @@ public partial class DockCalendar : UserControl
             calendar.Select(day.Date);
     }
 
+    private void OnMonthClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: CalendarMonthItemViewModel month } && DataContext is CalendarViewModel calendar)
+            calendar.SelectMonth(month.Date);
+    }
+
     private double _wheelDelta;
 
     /// <summary>
-    /// The wheel browses the months, like the taskbar calendar: one month per
-    /// notch. Touchpads report fractions of a notch, which add up first.
+    /// The wheel browses like the arrows, as on the taskbar calendar: one
+    /// month (or year, in the year view) per notch. Touchpads report
+    /// fractions of a notch, which add up first.
     /// </summary>
     private void OnPointerWheelChanged(object? sender, PointerWheelEventArgs e)
     {
@@ -89,12 +96,12 @@ public partial class DockCalendar : UserControl
         _wheelDelta += e.Delta.Y;
         while (_wheelDelta >= 1)
         {
-            calendar.PreviousMonthCommand.Execute(null);
+            calendar.PreviousCommand.Execute(null);
             _wheelDelta -= 1;
         }
         while (_wheelDelta <= -1)
         {
-            calendar.NextMonthCommand.Execute(null);
+            calendar.NextCommand.Execute(null);
             _wheelDelta += 1;
         }
     }
