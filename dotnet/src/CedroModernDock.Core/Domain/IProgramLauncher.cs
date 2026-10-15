@@ -23,4 +23,11 @@ public interface IProgramLauncher
     /// no longer exists.
     /// </summary>
     bool OpenFileLocation(string path);
+
+    /// <summary>
+    /// True when the executable belongs to a packaged (Store/UWP) app, such as
+    /// Windows Settings: it starts through its AppUserModelID, cannot be run
+    /// elevated, and its file location means nothing to the user.
+    /// </summary>
+    bool IsPackagedApp(string executablePath);
 }

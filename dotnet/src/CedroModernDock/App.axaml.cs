@@ -173,7 +173,7 @@ public partial class App : Application
             AppearanceService: new DockAppearanceService(dockService),
             PositioningService: new DockPositioningService(dockService, screenBoundsProvider),
             ItemActionService: new DockItemActionService(
-                new WindowsProgramLauncher(),
+                new WindowsProgramLauncher(appIds.PackagedAppId),
                 new WindowsFolderLauncher(),
                 new WindowsModuleLauncher()
             ),

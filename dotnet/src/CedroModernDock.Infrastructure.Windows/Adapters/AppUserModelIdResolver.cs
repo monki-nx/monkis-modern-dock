@@ -39,10 +39,85 @@ public sealed class AppUserModelIdResolver
     private List<AppEntry>? _catalog;
     private DateTime _catalogLoadedAt;
 
-    private sealed record AppEntry(string AppId, string TargetPath, string DisplayName);
+    private sealed record AppEntry(string AppId, string TargetPath, string DisplayName, string InstallPath);
 
     /// <summary>Loads the Start menu app catalog ahead of the first right click.</summary>
     public void Prewarm() => GetCatalog();
+
+    /// <summary>
+    /// The AppUserModelID of the packaged app an executable belongs to (an exe
+    /// inside a package's install folder, like Settings' SystemSettings.exe),
+    /// or null for ordinary desktop programs and execution aliases. Packaged
+    /// apps start through their AppUserModelID; running the exe directly
+    /// exits without opening a window.
+    /// </summary>
+    public string? PackagedAppId(string executablePath)
+    {
+        var catalog = GetCatalog();
+        var appIds = AppIdsInstalledAt(executablePath, catalog.Select(app => (app.AppId, app.InstallPath)));
+        if (appIds.Count <= 1)
+            return appIds.FirstOrDefault();
+
+        // A package with several apps: its manifest says which one runs this exe.
+        string installPath = catalog.First(app => app.AppId == appIds[0]).InstallPath;
+        return AppIdFromManifest(executablePath, installPath, appIds) ?? appIds[0];
+    }
+
+    /// <summary>
+    /// AppUserModelIDs of the catalog apps whose package install folder holds
+    /// <paramref name="executablePath"/>, deepest folder first.
+    /// </summary>
+    public static IReadOnlyList<string> AppIdsInstalledAt(string executablePath,
+        IEnumerable<(string AppId, string InstallPath)> apps)
+    {
+        string full;
+        try
+        {
+            full = Path.GetFullPath(executablePath);
+        }
+        catch
+        {
+            return [];
+        }
+
+        return apps
+            .Where(app => !string.IsNullOrEmpty(app.InstallPath)
+                && full.StartsWith(app.InstallPath.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(app => app.InstallPath.TrimEnd('\\').Length)
+            .Select(app => app.AppId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Picks the app whose &lt;Application Executable="..."&gt; in the package
+    /// manifest is <paramref name="executablePath"/>; AppUserModelIDs are
+    /// "&lt;package family&gt;!&lt;Application Id&gt;".
+    /// </summary>
+    private static string? AppIdFromManifest(string executablePath, string installPath, IReadOnlyList<string> appIds)
+    {
+        try
+        {
+            string relative = Path.GetRelativePath(installPath, Path.GetFullPath(executablePath));
+            var manifest = System.Xml.Linq.XDocument.Load(Path.Combine(installPath, "AppxManifest.xml"));
+            foreach (var application in manifest.Descendants().Where(e => e.Name.LocalName == "Application"))
+            {
+                string? executable = application.Attribute("Executable")?.Value;
+                string? id = application.Attribute("Id")?.Value;
+                if (id == null || executable == null
+                    || !string.Equals(executable.Replace('/', '\\'), relative, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                string? match = appIds.FirstOrDefault(appId =>
+                    appId.EndsWith("!" + id, StringComparison.OrdinalIgnoreCase));
+                if (match != null) return match;
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"Package manifest lookup failed: {e.Message}");
+        }
+        return null;
+    }
 
     /// <summary>
     /// The AppUserModelID the taskbar groups a window under: the window's own
@@ -139,6 +214,12 @@ public sealed class AppUserModelIdResolver
                     yield return app.AppId;
             }
         }
+
+        //    System apps live outside WindowsApps (Settings in
+        //    C:\Windows\ImmersiveControlPanel): match the package install folder.
+        foreach (string appId in AppIdsInstalledAt(executablePath,
+                     catalog.Select(app => (app.AppId, app.InstallPath))))
+            yield return appId;
 
         // 4. Same name as a Start menu app (covers launchers and renamed items).
         if (!string.IsNullOrWhiteSpace(label))
@@ -298,11 +379,12 @@ public sealed class AppUserModelIdResolver
                     if (item.GetPropertyStore(0, ref iidStore, out IPropertyStore store) != 0) continue;
                     string? appId = JumpListNative.GetString(store, JumpListNative.PKEY_AppUserModel_ID);
                     string target = JumpListNative.GetString(store, JumpListNative.PKEY_Link_TargetParsingPath) ?? "";
+                    string installPath = JumpListNative.GetString(store, JumpListNative.PKEY_AppUserModel_PackageInstallPath) ?? "";
                     Marshal.ReleaseComObject(store);
                     if (string.IsNullOrEmpty(appId)) continue;
 
                     string name = JumpListNative.GetDisplayName((IShellItem)item, JumpListNative.SIGDN_NORMALDISPLAY) ?? "";
-                    result.Add(new AppEntry(appId, target, name));
+                    result.Add(new AppEntry(appId, target, name, installPath));
                 }
                 finally
                 {

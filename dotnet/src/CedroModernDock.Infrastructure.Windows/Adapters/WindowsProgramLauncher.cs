@@ -10,6 +10,18 @@ using CedroModernDock.Core.Domain;
 /// </summary>
 public class WindowsProgramLauncher : IProgramLauncher
 {
+    private readonly Func<string, string?>? _packagedAppId;
+
+    /// <param name="packagedAppId">AppUserModelID of the packaged app an
+    /// executable belongs to, or null for desktop programs.</param>
+    public WindowsProgramLauncher(Func<string, string?>? packagedAppId = null)
+    {
+        _packagedAppId = packagedAppId;
+    }
+
+    public bool IsPackagedApp(string executablePath) =>
+        !string.IsNullOrWhiteSpace(executablePath) && PackagedAppId(executablePath) != null;
+
     public bool Launch(string executablePath, string label)
     {
         Debug.WriteLine($"{label} Clicked");
@@ -22,6 +34,10 @@ public class WindowsProgramLauncher : IProgramLauncher
 
         try
         {
+            // Packaged apps (Settings, Store apps) must be activated: started
+            // directly, their exe exits at once without opening a window.
+            if (PackagedAppId(executablePath) is { } appId)
+                return ActivatePackagedApp(appId, label);
             return ExecuteAndHandleElevation(executablePath, label);
         }
         catch (Exception e)
@@ -97,6 +113,32 @@ public class WindowsProgramLauncher : IProgramLauncher
             Debug.WriteLine($"Failed to open file location: {path} ({e.Message})");
             return false;
         }
+    }
+
+    private string? PackagedAppId(string executablePath)
+    {
+        try
+        {
+            return _packagedAppId?.Invoke(executablePath);
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"Packaged app lookup failed: {executablePath} ({e.Message})");
+            return null;
+        }
+    }
+
+    /// <summary>Starts a packaged app the way the Start menu does, through shell:AppsFolder.</summary>
+    private static bool ActivatePackagedApp(string appId, string label)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "explorer.exe",
+            Arguments = $"shell:AppsFolder\\{appId}",
+            UseShellExecute = true
+        });
+        Debug.WriteLine($"Activating packaged app: {label} ({appId})");
+        return true;
     }
 
     /// <summary>ERROR_CANCELLED: the user dismissed the UAC prompt.</summary>

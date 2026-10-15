@@ -77,6 +77,13 @@ public class DockItemActionService
         };
     }
 
+    /// <summary>
+    /// True for program items of packaged apps (Windows Settings, Store apps):
+    /// like the taskbar, their menu offers neither elevation nor file location.
+    /// </summary>
+    public bool IsPackagedApp(DockItem item) =>
+        item is DockProgramItemModel programItem && _programLauncher.IsPackagedApp(programItem.ExecutablePath);
+
     /// <summary>True when the item has a file location that Explorer can reveal.</summary>
     public static bool HasFileLocation(DockItem item) =>
         item is DockProgramItemModel or DockFolderItemModel;

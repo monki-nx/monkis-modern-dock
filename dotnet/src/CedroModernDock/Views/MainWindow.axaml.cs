@@ -292,10 +292,13 @@ public partial class MainWindow : Window
             AddJumpListEntries(entries, executablePath, itemVm.Label, windows);
 
         entries.Add(MenuEntry(itemVm.Label, () => vm.LaunchItem(itemVm), icon: itemVm.Icon));
-        if (itemVm.Item is DockProgramItemModel)
+        // Packaged apps (Windows Settings, Store apps) can be neither elevated
+        // nor located, so the taskbar offers neither.
+        bool packaged = vm.IsPackagedApp(itemVm.Item);
+        if (itemVm.Item is DockProgramItemModel && !packaged)
             entries.Add(MenuEntry(loc.Text("contextMenu.runAsAdministrator"),
                 () => vm.RunAsAdministrator(itemVm.Item), GlyphAdministrator));
-        if (DockItemActionService.HasFileLocation(itemVm.Item))
+        if (DockItemActionService.HasFileLocation(itemVm.Item) && !packaged)
             entries.Add(MenuEntry(loc.Text("contextMenu.openFileLocation"),
                 () => vm.OpenFileLocation(itemVm.Item), GlyphFolder));
         entries.Add(MenuEntry(loc.Text("contextMenu.unpin"), () =>
@@ -323,10 +326,13 @@ public partial class MainWindow : Window
         AddJumpListEntries(entries, app.ExecutablePath, app.Label, windows);
 
         entries.Add(MenuEntry(app.Label, () => vm.LaunchRunningApp(app), icon: app.Icon));
-        entries.Add(MenuEntry(loc.Text("contextMenu.runAsAdministrator"),
-            () => vm.RunAsAdministrator(programItem), GlyphAdministrator));
-        entries.Add(MenuEntry(loc.Text("contextMenu.openFileLocation"),
-            () => vm.OpenFileLocation(programItem), GlyphFolder));
+        if (!vm.IsPackagedApp(programItem))
+        {
+            entries.Add(MenuEntry(loc.Text("contextMenu.runAsAdministrator"),
+                () => vm.RunAsAdministrator(programItem), GlyphAdministrator));
+            entries.Add(MenuEntry(loc.Text("contextMenu.openFileLocation"),
+                () => vm.OpenFileLocation(programItem), GlyphFolder));
+        }
         entries.Add(MenuEntry(loc.Text("contextMenu.pin"), () =>
         {
             if (vm.PinRunningApp(app))

@@ -374,6 +374,10 @@ public partial class MainWindowViewModel : ViewModelBase
     public void OpenFileLocation(DockItem item) =>
         _appServices?.ItemActionService.OpenFileLocation(item);
 
+    /// <summary>True for packaged apps (Windows Settings, Store apps), which have no elevation or file location.</summary>
+    public bool IsPackagedApp(DockItem item) =>
+        _appServices?.ItemActionService.IsPackagedApp(item) == true;
+
     /// <summary>
     /// Open windows of the executable: their count drives the close entries and
     /// the first one identifies the app for its jump list.

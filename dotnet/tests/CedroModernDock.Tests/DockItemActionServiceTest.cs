@@ -180,6 +180,9 @@ public class DockItemActionServiceTest
             record("location", path, "");
             return true;
         }
+
+        public bool IsPackagedApp(string executablePath) =>
+            executablePath.Contains(@"\ImmersiveControlPanel\", StringComparison.OrdinalIgnoreCase);
     }
     private sealed class FolderLauncherImpl(Action<string, string> fn) : IFolderLauncher
     {

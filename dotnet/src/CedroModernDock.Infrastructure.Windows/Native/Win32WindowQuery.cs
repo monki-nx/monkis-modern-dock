@@ -22,7 +22,7 @@ public static class Win32WindowQuery
     // entry would flip to ApplicationFrameHost.exe (losing its label and icon).
     // Cache the resolved app exe per frame HWND so it stays stable across
     // minimize/restore; entries are pruned when the frame window goes away.
-    private static readonly Dictionary<IntPtr, string> _frameAppExeCache = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, string> _frameAppExeCache = new();
 
     /// <summary>
     /// Enumerates all visible top-level windows that would appear in the Windows
@@ -38,7 +38,7 @@ public static class Win32WindowQuery
         foreach (var handle in _frameAppExeCache.Keys.ToList())
         {
             if (!User32.IsWindow(handle))
-                _frameAppExeCache.Remove(handle);
+                _frameAppExeCache.TryRemove(handle, out _);
         }
 
         User32.EnumWindows((hWnd, _) =>
@@ -205,6 +205,16 @@ public static class Win32WindowQuery
                 string.Equals(cls, "MSCTFIME UI", StringComparison.OrdinalIgnoreCase))
                 return true;
 
+            // A UWP app shown normally lives in a CoreWindow that is a child of
+            // its ApplicationFrameHost frame, so no top-level window of the app's
+            // own exe exists: the frame itself is the app's window.
+            if (IsFrameHostingExecutable(hWnd, targetPath))
+            {
+                if (!windows.Any(w => w.Handle == hWnd))
+                    windows.Add(new WindowInfo(hWnd, title));
+                return true;
+            }
+
             bool matches = IsWindowFromExecutable(hWnd, targetPath)
                 || (matchByAppId && windowAppId!(hWnd) is { } appId
                     && appIds!.Contains(appId, StringComparer.OrdinalIgnoreCase));
@@ -222,9 +232,33 @@ public static class Win32WindowQuery
     }
 
     /// <summary>
+    /// True when <paramref name="hWnd"/> is an ApplicationFrameHost frame hosting
+    /// the app <paramref name="targetPath"/> (not ApplicationFrameHost itself):
+    /// its CoreWindow child runs that exe, or did when the frame was last seen
+    /// (minimized frames lose the child).
+    /// </summary>
+    private static bool IsFrameHostingExecutable(IntPtr hWnd, string targetPath)
+    {
+        if (string.Equals(Path.GetFileName(targetPath), "ApplicationFrameHost.exe", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string? framePath = GetProcessPath(hWnd);
+        if (!string.Equals(Path.GetFileName(framePath), "ApplicationFrameHost.exe", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string? appPath = GetChildProcessExePath(hWnd, framePath!);
+        if (!string.IsNullOrEmpty(appPath))
+            _frameAppExeCache[hWnd] = appPath;
+        else
+            _frameAppExeCache.TryGetValue(hWnd, out appPath);
+
+        return !string.IsNullOrEmpty(appPath) && IsSameExecutable(appPath, targetPath);
+    }
+
+    /// <summary>
     /// For UWP/AppX apps the visible top-level window belongs to
     /// ApplicationFrameHost, while the CoreWindow matching the app's exe is
-    /// cloaked by the shell. A cloaked window cannot be shown or activated, so
+    /// cloaked by the shell while the app is minimized. A cloaked window cannot be shown or activated, so
     /// the preview/activation target is resolved to the ApplicationFrameHost
     /// frame that hosts the same titled window.
     /// </summary>
