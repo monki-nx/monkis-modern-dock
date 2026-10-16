@@ -104,6 +104,14 @@ public class DockModel
     public int MenuAcrylicIntensity { get; set; } = 40;
 
     /// <summary>
+    /// Acrylic background on the dock bar itself (blur behind it, tinted with
+    /// the dock color at MenuAcrylicIntensity). Off, the bar is a flat surface
+    /// of the dock color at DockTransparency.
+    /// </summary>
+    [JsonPropertyName("dockAcrylic")]
+    public bool DockAcrylic { get; set; }
+
+    /// <summary>
     /// Reserve the screen strip the dock sits on (like the taskbar), so
     /// maximized windows stop above the dock instead of covering it.
     /// </summary>

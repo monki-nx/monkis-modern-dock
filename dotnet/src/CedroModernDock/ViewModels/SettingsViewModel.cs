@@ -89,6 +89,10 @@ public partial class SettingsViewModel : ViewModelBase
     /// <summary>Opacity of the dock-colored tint over the acrylic blur of the context menu and the clock calendar.</summary>
     public int MenuAcrylicIntensity { get => _menuAcrylicIntensity; set => SetProperty(ref _menuAcrylicIntensity, value); }
 
+    private bool _dockAcrylic;
+    /// <summary>Acrylic background on the dock bar; off, the bar is a flat surface with the transparency setting.</summary>
+    public bool DockAcrylic { get => _dockAcrylic; set => SetProperty(ref _dockAcrylic, value); }
+
     private bool _reserveScreenSpace = true;
     /// <summary>Reserve the dock's screen strip so maximized windows stop above it.</summary>
     public bool ReserveScreenSpace { get => _reserveScreenSpace; set => SetProperty(ref _reserveScreenSpace, value); }
@@ -195,6 +199,8 @@ public partial class SettingsViewModel : ViewModelBase
     public string TransparencyHelper => T("settings.dockCustomization.transparency.helper");
     public string MenuAcrylicTitle => T("settings.dockCustomization.menuAcrylic.title");
     public string MenuAcrylicHelper => T("settings.dockCustomization.menuAcrylic.helper");
+    public string DockAcrylicTitle => T("settings.dockCustomization.dockAcrylic.title");
+    public string DockAcrylicHelper => T("settings.dockCustomization.dockAcrylic.helper");
     public string ReserveSpaceText => T("settings.positioning.reserveSpace");
     public string ReserveSpaceHelper => T("settings.positioning.reserveSpace.helper");
     public string RoundingTitle => T("settings.dockCustomization.rounding.title");
@@ -273,6 +279,7 @@ public partial class SettingsViewModel : ViewModelBase
         IconSpacing = app.GetSpacingBetweenIcons();
         Transparency = app.GetDockTransparencyPercentage();
         MenuAcrylicIntensity = app.GetMenuAcrylicIntensity();
+        DockAcrylic = app.GetDockAcrylic();
         BorderRounding = app.GetDockBorderRounding();
         DockColor = ParseRgbColor(app.GetDockColorRGB());
         TintIcons = app.GetTintIcons();
@@ -309,6 +316,7 @@ public partial class SettingsViewModel : ViewModelBase
             case nameof(IconSpacing): OnIconSpacingChanged(); break;
             case nameof(Transparency): OnTransparencyChanged(); break;
             case nameof(MenuAcrylicIntensity): _appServices.AppearanceService.SetMenuAcrylicIntensity(MenuAcrylicIntensity); _dockRefreshAction(); break;
+            case nameof(DockAcrylic): _appServices.AppearanceService.SetDockAcrylic(DockAcrylic); _dockRefreshAction(); break;
             case nameof(ReserveScreenSpace): _appServices.PositioningService.SetReserveScreenSpace(ReserveScreenSpace); _dockRefreshAction(); break;
             case nameof(BorderRounding): OnBorderRoundingChanged(); break;
             case nameof(DockColor): OnDockColorChanged(); OnPropertyChanged(nameof(DockColorBrush)); break;

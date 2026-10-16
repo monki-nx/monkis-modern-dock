@@ -530,12 +530,13 @@ public partial class MainWindow : Window
     private bool _dockAcrylic;
 
     /// <summary>
-    /// The popups' acrylic on the dock bar itself: the system blurs what is
-    /// behind the dock and tints it with the dock color at the "acrylic
-    /// intensity" setting. The bar's own background then steps aside, as the
-    /// tint would apply twice; when the system refuses acrylic the bar keeps
-    /// its dock-colored background with the transparency setting. Applied on
-    /// every appearance refresh, so the settings sliders act live.
+    /// The popups' acrylic on the dock bar itself, when the setting asks for
+    /// it: the system blurs what is behind the dock and tints it with the
+    /// dock color at the "acrylic intensity" setting, and the bar's own
+    /// background steps aside, as the tint would apply twice. Off, or when
+    /// the system refuses acrylic, the bar paints its flat dock-colored
+    /// surface with the transparency setting. Applied on every appearance
+    /// refresh, so the settings act live.
     /// </summary>
     private void ApplyDockChrome()
     {
@@ -543,26 +544,34 @@ public partial class MainWindow : Window
         IntPtr hwnd = this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
         if (hwnd == IntPtr.Zero) return;
 
-        Color tint = DockColor();
-        byte intensity = (byte)Math.Round(
-            _appServices.AppearanceService.GetMenuAcrylicIntensity() / 100.0 * 255);
-        _dockAcrylic = AcrylicBackdrop.Enable(hwnd, intensity, tint.R, tint.G, tint.B);
-        vm.DockAcrylicActive = _dockAcrylic;
-        if (_dockAcrylic)
-            vm.DockBackground = Brushes.Transparent;
+        var appearance = _appServices.AppearanceService;
+        if (appearance.GetDockAcrylic())
+        {
+            Color tint = DockColor();
+            byte intensity = (byte)Math.Round(appearance.GetMenuAcrylicIntensity() / 100.0 * 255);
+            _dockAcrylic = AcrylicBackdrop.Enable(hwnd, intensity, tint.R, tint.G, tint.B);
+        }
+        else
+        {
+            AcrylicBackdrop.Disable(hwnd);
+            _dockAcrylic = false;
+        }
+        vm.SetDockAcrylicActive(_dockAcrylic);
         ApplyDockShape();
     }
 
     /// <summary>
     /// The acrylic fills the window's rectangle, so the window is cut to the
-    /// bar's rounded shape; it follows the dock's size and corner setting.
+    /// bar's rounded shape, following the dock's size and corner setting.
+    /// Without acrylic the bar draws its own rounded surface over a
+    /// transparent window, and the window keeps its full rectangle.
     /// </summary>
     private void ApplyDockShape()
     {
-        if (!_dockAcrylic || DataContext is not MainWindowViewModel vm) return;
+        if (DataContext is not MainWindowViewModel vm) return;
         IntPtr hwnd = this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
         if (hwnd == IntPtr.Zero || !User32.GetWindowRect(hwnd, out RECT rect)) return;
-        int diameter = (int)Math.Round(vm.BorderRounding * 2 * RenderScaling);
+        int diameter = _dockAcrylic ? (int)Math.Round(vm.BorderRounding * 2 * RenderScaling) : 0;
         WindowShape.RoundCorners(hwnd, rect.Right - rect.Left, rect.Bottom - rect.Top, diameter);
     }
 
