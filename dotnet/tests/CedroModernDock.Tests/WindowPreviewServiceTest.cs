@@ -89,19 +89,38 @@ public class WindowPreviewServiceTest
     }
 
     [Fact]
-    public void ClickWithSeveralWindowsCyclesFromTheActiveOne()
+    public void ClickWithSeveralWindowsCyclesToTheLeastRecentOne()
     {
-        var gateway = new FakeWindowQueryGateway { Foreground = Third.Handle };
+        // Windows come topmost first: the active one leads, the least recent closes the list.
+        var gateway = new FakeWindowQueryGateway { Foreground = First.Handle };
         var service = new WindowPreviewService(gateway);
 
         service.ActivateOrMinimize(new[] { First, Second, Third });
 
-        Assert.Equal(new[] { "activate 1" }, gateway.Actions);
+        Assert.Equal(new[] { "activate 3" }, gateway.Actions);
 
-        gateway.Foreground = First.Handle;
+        gateway.Foreground = Third.Handle;
         service.ActivateOrMinimize(new[] { First, Second, Third });
 
-        Assert.Equal(new[] { "activate 1", "activate 2" }, gateway.Actions);
+        Assert.Equal(new[] { "activate 3", "activate 2" }, gateway.Actions);
+    }
+
+    [Fact]
+    public void RepeatedClicksVisitEveryWindow()
+    {
+        // Each activation moves that window to the front of the z-order, as
+        // the system does; three clicks must reach all three windows instead
+        // of alternating between the two most recent ones.
+        var gateway = new FakeWindowQueryGateway { Foreground = First.Handle };
+        var service = new WindowPreviewService(gateway);
+
+        service.ActivateOrMinimize(new[] { First, Second, Third });
+        gateway.Foreground = Third.Handle;
+        service.ActivateOrMinimize(new[] { Third, First, Second });
+        gateway.Foreground = Second.Handle;
+        service.ActivateOrMinimize(new[] { Second, Third, First });
+
+        Assert.Equal(new[] { "activate 3", "activate 2", "activate 1" }, gateway.Actions);
     }
 
     private sealed class FakeWindowQueryGateway(params WindowInfo[] windows) : IWindowQueryGateway
