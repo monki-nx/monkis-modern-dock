@@ -558,6 +558,7 @@ public partial class MainWindow : Window
         SetNoActivate(_contextMenuHwnd);
 
         _contextMenuForeground = User32.GetForegroundWindow();
+        _popupHiddenInput.Reset();
         _contextMenuWatch.Start();
     }
 
@@ -626,6 +627,7 @@ public partial class MainWindow : Window
         SetNoActivate(_calendarHwnd);
 
         _calendarForeground = User32.GetForegroundWindow();
+        _popupHiddenInput.Reset();
         _calendarWatch.Start();
     }
 
@@ -650,6 +652,20 @@ public partial class MainWindow : Window
             && foreground != popupHwnd
             && foreground != (this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
     }
+
+    // Shared by the context menu and the calendar: opening one closes the other.
+    private readonly HiddenInputWatch _popupHiddenInput = new();
+
+    /// <summary>
+    /// A click the dock cannot see — on an elevated app, see HiddenInputWatch —
+    /// away from the popup and the dock bar. Without it, clicking the elevated
+    /// app that already had the focus left the popup open: there is no
+    /// foreground change and GetAsyncKeyState reports no button.
+    /// </summary>
+    private bool HiddenPressOutside(IntPtr popupHwnd) =>
+        _popupHiddenInput.HiddenPressSinceLastPoll()
+        && !IsPointerOverWindow(popupHwnd)
+        && !IsPointerOverWindow(this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
 
     private void CloseCalendar()
     {
@@ -677,7 +693,8 @@ public partial class MainWindow : Window
             || IsKeyDown(Win32Constants.VK_MBUTTON);
         if ((buttonDown && !IsPointerOverWindow(_calendarHwnd) && !ClockButton.IsPointerOver)
             || IsKeyDown(Win32Constants.VK_ESCAPE)
-            || AnotherAppTookForeground(_calendarForeground, _calendarHwnd))
+            || AnotherAppTookForeground(_calendarForeground, _calendarHwnd)
+            || HiddenPressOutside(_calendarHwnd))
         {
             CloseCalendar();
         }
@@ -707,7 +724,8 @@ public partial class MainWindow : Window
             || IsKeyDown(Win32Constants.VK_MBUTTON);
         if ((buttonDown && !IsPointerOverContextMenu())
             || IsKeyDown(Win32Constants.VK_ESCAPE)
-            || AnotherAppTookForeground(_contextMenuForeground, _contextMenuHwnd))
+            || AnotherAppTookForeground(_contextMenuForeground, _contextMenuHwnd)
+            || HiddenPressOutside(_contextMenuHwnd))
         {
             menu.Close();
         }

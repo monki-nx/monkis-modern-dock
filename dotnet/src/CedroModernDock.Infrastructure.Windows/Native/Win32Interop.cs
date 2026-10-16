@@ -99,6 +99,14 @@ public struct POINT
     public int Y;
 }
 
+/// <summary>Native LASTINPUTINFO structure: tick count of the last input event in the session.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct LASTINPUTINFO
+{
+    public uint cbSize;
+    public uint dwTime;
+}
+
 /// <summary>Native TRACKMOUSEEVENT structure for mouse-leave notifications.</summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct TRACKMOUSEEVENT
@@ -201,6 +209,9 @@ public static class User32
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool AllowSetForegroundWindow(uint dwProcessId);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -336,6 +347,22 @@ internal static class Kernel32
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr GetModuleHandle(string? lpModuleName);
+}
+
+internal static class Advapi32
+{
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool GetTokenInformation(IntPtr tokenHandle, int tokenInformationClass,
+        IntPtr tokenInformation, int tokenInformationLength, out int returnLength);
+
+    [DllImport("advapi32.dll")]
+    public static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
+
+    [DllImport("advapi32.dll")]
+    public static extern IntPtr GetSidSubAuthority(IntPtr sid, uint subAuthority);
 }
 
 internal static class Comctl32
