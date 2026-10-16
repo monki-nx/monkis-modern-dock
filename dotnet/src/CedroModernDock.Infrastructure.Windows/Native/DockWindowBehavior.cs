@@ -1,6 +1,7 @@
 namespace CedroModernDock.Infrastructure.Windows.Native;
 
 using System;
+using System.Runtime.InteropServices;
 using System.Text;
 
 /// <summary>
@@ -9,11 +10,13 @@ using System.Text;
 /// <item><b>WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW</b> — the dock never steals focus
 /// and never appears in the taskbar or Alt-Tab cycle.</item>
 /// <item><b>Desktop attachment</b> — the dock becomes an owned window of the
-/// desktop (the WorkerW hosting the desktop icons), so it sticks to the
-/// desktop: Win+D "Show Desktop" keeps it visible, maximized/normal windows
-/// cover it, and it is never part of the minimize-all cycle.</item>
-/// <item><b>Subclass</b> — defense in depth: intercepts minimize commands
-/// (SC_MINIMIZE, SIZE_MINIMIZED) in case a shell path minimizes it anyway.</item>
+/// desktop (the WorkerW hosting the desktop icons, or Progman) kept at the
+/// bottom of the z-order, so it sits behind every normal window like the
+/// desktop icons. It stays a top-level window: DWM gives those the acrylic
+/// backdrop it refuses to a window parented to the desktop.</item>
+/// <item><b>Subclass</b> — keeps the dock bottommost (WM_WINDOWPOSCHANGING)
+/// and answers Win+D "Show Desktop": minimize commands are blocked
+/// (SC_MINIMIZE) and a forced minimize is undone (SIZE_MINIMIZED).</item>
 /// </list>
 /// </summary>
 public sealed class DockWindowBehavior : IDisposable
@@ -66,10 +69,11 @@ public sealed class DockWindowBehavior : IDisposable
     }
 
     /// <summary>
-    /// Parents the dock to the desktop icons window. The dock stays a popup
-    /// window (screen coordinates and layered transparency are preserved), but
-    /// being owned by the desktop it survives "Show Desktop" and sits behind
-    /// every normal window — exactly like the desktop icons.
+    /// Makes the desktop icons window the dock's owner and sends the dock to
+    /// the bottom of the z-order, where the subclass keeps it. Owned rather
+    /// than parented, the dock stays a top-level window in screen coordinates
+    /// and keeps the acrylic backdrop; owned by the desktop and bottommost, it
+    /// sits behind every normal window — exactly like the desktop icons.
     /// </summary>
     private void AttachToDesktop()
     {
@@ -80,21 +84,24 @@ public sealed class DockWindowBehavior : IDisposable
             return;
         }
 
-        User32.SetParent(_hwnd, desktop);
-        _onStatus?.Invoke($"Attached to desktop 0x{desktop:X}");
+        User32.SetWindowLongPtr(_hwnd, Win32Constants.GWLP_HWNDPARENT, desktop);
+        User32.SetWindowPos(_hwnd, Win32Constants.HWND_BOTTOM, 0, 0, 0, 0,
+            Win32Constants.SWP_NOMOVE | Win32Constants.SWP_NOSIZE | Win32Constants.SWP_NOACTIVATE);
+        _onStatus?.Invoke($"Owned by desktop 0x{desktop:X}");
     }
 
     /// <summary>
-    /// Screen position of the parent's client origin. After SetParent, window
-    /// moves are relative to the desktop window, which starts at the virtual
-    /// screen's top-left — not (0,0) when a monitor sits above or left of the
-    /// primary one. (0,0) when the dock has no parent.
+    /// Screen position of the parent's client origin: (0,0) for the dock,
+    /// which is a top-level window (owned by the desktop, not parented to it).
+    /// A window parented to the desktop would move relative to it, and the
+    /// desktop starts at the virtual screen's top-left — not (0,0) when a
+    /// monitor sits above or left of the primary one.
     /// </summary>
     public (int X, int Y) GetParentOrigin()
     {
-        // GetParent would return the (absent) owner: the dock keeps WS_POPUP.
+        // GetParent would return the owner: the dock keeps WS_POPUP.
         IntPtr parent = _hwnd == IntPtr.Zero ? IntPtr.Zero : User32.GetAncestor(_hwnd, User32.GA_PARENT);
-        if (parent == IntPtr.Zero) return (0, 0);
+        if (parent == IntPtr.Zero || parent == User32.GetDesktopWindow()) return (0, 0);
         var origin = new POINT();
         return User32.ClientToScreen(parent, ref origin) ? (origin.X, origin.Y) : (0, 0);
     }
@@ -144,6 +151,19 @@ public sealed class DockWindowBehavior : IDisposable
         {
             AppBarNotification?.Invoke(wParam.ToInt32());
             return IntPtr.Zero;
+        }
+
+        // 0. Bottommost: whatever tries to raise the dock lands it at the
+        //    bottom of the z-order instead, behind every normal window (its
+        //    desktop owner keeps it above the wallpaper and the icons).
+        if (uMsg == Win32Constants.WM_WINDOWPOSCHANGING)
+        {
+            var pos = Marshal.PtrToStructure<WINDOWPOS>(lParam);
+            if ((pos.flags & Win32Constants.SWP_NOZORDER) == 0 && pos.hwndInsertAfter != Win32Constants.HWND_BOTTOM)
+            {
+                pos.hwndInsertAfter = Win32Constants.HWND_BOTTOM;
+                Marshal.StructureToPtr(pos, lParam, false);
+            }
         }
 
         // 1. Block explicit minimize (SC_MINIMIZE) — covers normal "Minimize"

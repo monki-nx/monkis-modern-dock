@@ -40,6 +40,10 @@ public static class AcrylicBackdrop
     public static bool Enable(IntPtr hwnd, byte alpha, byte r, byte g, byte b)
     {
         if (hwnd == IntPtr.Zero) return false;
+        // A fully transparent tint switches the blur off altogether, which
+        // would leave the dock bar invisible at intensity 0; the faintest
+        // tint keeps the blur.
+        if (alpha == 0) alpha = 1;
         var policy = new AccentPolicy
         {
             AccentState = ACCENT_ENABLE_ACRYLICBLURBEHIND,

@@ -308,7 +308,7 @@ public partial class SettingsViewModel : ViewModelBase
             case nameof(IconSize): OnIconSizeChanged(); break;
             case nameof(IconSpacing): OnIconSpacingChanged(); break;
             case nameof(Transparency): OnTransparencyChanged(); break;
-            case nameof(MenuAcrylicIntensity): _appServices.AppearanceService.SetMenuAcrylicIntensity(MenuAcrylicIntensity); break;
+            case nameof(MenuAcrylicIntensity): _appServices.AppearanceService.SetMenuAcrylicIntensity(MenuAcrylicIntensity); _dockRefreshAction(); break;
             case nameof(ReserveScreenSpace): _appServices.PositioningService.SetReserveScreenSpace(ReserveScreenSpace); _dockRefreshAction(); break;
             case nameof(BorderRounding): OnBorderRoundingChanged(); break;
             case nameof(DockColor): OnDockColorChanged(); OnPropertyChanged(nameof(DockColorBrush)); break;
