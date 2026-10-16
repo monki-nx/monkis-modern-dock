@@ -323,17 +323,21 @@ public static class Win32WindowQuery
         if (hwnd == IntPtr.Zero)
             return;
 
-        // A restore posted to an elevated window (see ShowWindowOrPost) is
-        // handled by the app itself, which then activates its window: let its
-        // process take the foreground, which the dock may give as it received
-        // the click.
-        User32.GetWindowThreadProcessId(hwnd, out uint pid);
-        if (pid != 0)
-            User32.AllowSetForegroundWindow(pid);
-
-        if (User32.IsIconic(hwnd))
-            ShowWindowOrPost(hwnd, Win32Constants.SW_RESTORE, Win32Constants.SC_RESTORE);
+        bool restorePosted = User32.IsIconic(hwnd)
+            && ShowWindowOrPost(hwnd, Win32Constants.SW_RESTORE, Win32Constants.SC_RESTORE);
         User32.SetForegroundWindow(hwnd);
+
+        // A posted restore is handled by the app itself, later: let its
+        // process take the foreground when it does. Only after the dock's own
+        // SetForegroundWindow, and only then: AllowSetForegroundWindow hands
+        // the dock's permission over, and a SetForegroundWindow that follows
+        // it fails — every click on another app's window did, elevated or not.
+        if (restorePosted)
+        {
+            User32.GetWindowThreadProcessId(hwnd, out uint pid);
+            if (pid != 0)
+                User32.AllowSetForegroundWindow(pid);
+        }
     }
 
     /// <summary>Minimizes the window (taskbar click on the already active window).</summary>
@@ -350,14 +354,16 @@ public static class Win32WindowQuery
     /// administrator) with ERROR_ACCESS_DENIED, so their minimize and restore
     /// silently did nothing. WM_SYSCOMMAND still reaches them, and is what the
     /// window's own minimize button and the taskbar thumbnail menu send.
+    /// Returns true when the command had to be posted.
     /// </summary>
-    private static void ShowWindowOrPost(IntPtr hwnd, int showCommand, int sysCommand)
+    private static bool ShowWindowOrPost(IntPtr hwnd, int showCommand, int sysCommand)
     {
         Marshal.SetLastPInvokeError(0);
         if (User32.ShowWindow(hwnd, showCommand)
             || Marshal.GetLastPInvokeError() != Win32Constants.ERROR_ACCESS_DENIED)
-            return;
+            return false;
         User32.PostMessage(hwnd, (uint)Win32Constants.WM_SYSCOMMAND, new IntPtr(sysCommand), IntPtr.Zero);
+        return true;
     }
 
     public static bool IsMinimized(IntPtr hwnd) => hwnd != IntPtr.Zero && User32.IsIconic(hwnd);
