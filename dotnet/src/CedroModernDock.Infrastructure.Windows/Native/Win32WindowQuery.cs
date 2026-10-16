@@ -1,5 +1,6 @@
 using System.Text;
 using System.IO;
+using System.Runtime.InteropServices;
 
 namespace CedroModernDock.Infrastructure.Windows.Native;
 
@@ -322,8 +323,16 @@ public static class Win32WindowQuery
         if (hwnd == IntPtr.Zero)
             return;
 
+        // A restore posted to an elevated window (see ShowWindowOrPost) is
+        // handled by the app itself, which then activates its window: let its
+        // process take the foreground, which the dock may give as it received
+        // the click.
+        User32.GetWindowThreadProcessId(hwnd, out uint pid);
+        if (pid != 0)
+            User32.AllowSetForegroundWindow(pid);
+
         if (User32.IsIconic(hwnd))
-            User32.ShowWindow(hwnd, Win32Constants.SW_RESTORE);
+            ShowWindowOrPost(hwnd, Win32Constants.SW_RESTORE, Win32Constants.SC_RESTORE);
         User32.SetForegroundWindow(hwnd);
     }
 
@@ -331,7 +340,24 @@ public static class Win32WindowQuery
     public static void MinimizeWindow(IntPtr hwnd)
     {
         if (hwnd != IntPtr.Zero)
-            User32.ShowWindow(hwnd, Win32Constants.SW_MINIMIZE);
+            ShowWindowOrPost(hwnd, Win32Constants.SW_MINIMIZE, Win32Constants.SC_MINIMIZE);
+    }
+
+    /// <summary>
+    /// ShowWindow, or the equivalent window-menu command when it is refused.
+    /// The dock runs without elevation, and User Interface Privilege Isolation
+    /// denies ShowWindow on the windows of elevated apps (a Terminal run as
+    /// administrator) with ERROR_ACCESS_DENIED, so their minimize and restore
+    /// silently did nothing. WM_SYSCOMMAND still reaches them, and is what the
+    /// window's own minimize button and the taskbar thumbnail menu send.
+    /// </summary>
+    private static void ShowWindowOrPost(IntPtr hwnd, int showCommand, int sysCommand)
+    {
+        Marshal.SetLastPInvokeError(0);
+        if (User32.ShowWindow(hwnd, showCommand)
+            || Marshal.GetLastPInvokeError() != Win32Constants.ERROR_ACCESS_DENIED)
+            return;
+        User32.PostMessage(hwnd, (uint)Win32Constants.WM_SYSCOMMAND, new IntPtr(sysCommand), IntPtr.Zero);
     }
 
     public static bool IsMinimized(IntPtr hwnd) => hwnd != IntPtr.Zero && User32.IsIconic(hwnd);

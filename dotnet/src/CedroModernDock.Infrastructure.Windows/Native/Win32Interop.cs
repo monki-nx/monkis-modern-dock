@@ -48,7 +48,9 @@ public static class Win32Constants
     public const int WM_SYSCOMMAND = 0x0112;
     public const int WM_SIZE = 0x0005;
     public const int SC_MINIMIZE = 0xF020;
+    public const int SC_RESTORE = 0xF120;
     public const int SIZE_MINIMIZED = 0;
+    public const int ERROR_ACCESS_DENIED = 5;
     public const int WM_GETICON = 0x007F;
     public const int WM_CLOSE = 0x0010;
     public const int WM_LBUTTONUP = 0x0202;
@@ -196,6 +198,9 @@ public static class User32
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool AllowSetForegroundWindow(uint dwProcessId);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
