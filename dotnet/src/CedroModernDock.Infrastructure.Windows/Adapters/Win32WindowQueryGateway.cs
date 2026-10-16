@@ -29,7 +29,7 @@ public class Win32WindowQueryGateway : IWindowQueryGateway
 
     public List<RunningWindowInfo> FindTaskbarWindows()
     {
-        return Win32WindowQuery.GetTaskbarWindows(_appIds.WindowAppId)
+        return Win32WindowQuery.GetTaskbarWindows(_appIds.WindowAppId, _appIds.ExecutableOf)
             .Select(w => new RunningWindowInfo(w.Handle, w.Title, w.ExecutablePath, w.AppId))
             .ToList();
     }

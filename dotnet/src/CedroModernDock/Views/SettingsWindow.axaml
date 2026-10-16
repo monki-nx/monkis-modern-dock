@@ -6,7 +6,7 @@
         x:DataType="vm:SettingsViewModel"
         Title="{Binding WindowTitle}"
         Icon="/Assets/icons/cedro/logo_256.png"
-        Width="780" Height="544"
+        Width="780" Height="780"
         CanResize="False"
         WindowStartupLocation="CenterScreen"
         Background="#1E1E1E"
@@ -109,7 +109,10 @@
         </Style>
     </Window.Styles>
 
-    <ScrollViewer Padding="20,20,20,30" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+    <!-- Never scroll sideways: with horizontal scrolling allowed the content is
+         measured with infinite width, so helper texts stop wrapping and the
+         sliders stretch past the window. -->
+    <ScrollViewer Padding="20,20,20,30" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                   AllowAutoHide="False">
         <StackPanel Orientation="Vertical" Spacing="12">
             <!-- Header -->
@@ -223,7 +226,12 @@
                 <!-- Tab 3: Dock Customization -->
                 <TabItem Header="{Binding TabDockCustomization}">
                     <StackPanel Orientation="Vertical" Spacing="16" Margin="16,12">
+                        <!-- Acrylic or flat: the transparency slider only acts on the flat surface. -->
                         <StackPanel Orientation="Vertical" Spacing="4">
+                            <CheckBox Content="{Binding DockAcrylicTitle}" IsChecked="{Binding DockAcrylic}" Foreground="#CCCCCC" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding DockAcrylicHelper}" FontSize="11" Foreground="#888888" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Vertical" Spacing="4" IsEnabled="{Binding !DockAcrylic}">
                             <TextBlock Text="{Binding TransparencyTitle}" FontWeight="SemiBold" Foreground="#CCCCCC"/>
                             <TextBlock Text="{Binding TransparencyHelper}" FontSize="11" Foreground="#888888" TextWrapping="Wrap"/>
                             <Slider Minimum="0" Maximum="100" Value="{Binding Transparency}" Margin="0,8,0,0"/>

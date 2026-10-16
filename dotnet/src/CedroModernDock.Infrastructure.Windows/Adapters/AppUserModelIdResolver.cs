@@ -64,6 +64,34 @@ public sealed class AppUserModelIdResolver
     }
 
     /// <summary>
+    /// The exe a catalog app runs: its package install path plus the
+    /// manifest's &lt;Application Executable&gt; for the app's Id; null when
+    /// the app is not in shell:AppsFolder or has no package. The same path
+    /// the app's CoreWindow reports, so a minimized UWP frame resolved this
+    /// way groups with its restored windows.
+    /// </summary>
+    public string? ExecutableOf(string appId)
+    {
+        var app = GetCatalog().FirstOrDefault(a => string.Equals(a.AppId, appId, StringComparison.OrdinalIgnoreCase));
+        if (app == null || string.IsNullOrEmpty(app.InstallPath)) return null;
+        string id = appId[(appId.LastIndexOf('!') + 1)..];
+        try
+        {
+            var manifest = System.Xml.Linq.XDocument.Load(Path.Combine(app.InstallPath, "AppxManifest.xml"));
+            string? executable = manifest.Descendants()
+                .Where(e => e.Name.LocalName == "Application")
+                .FirstOrDefault(e => string.Equals(e.Attribute("Id")?.Value, id, StringComparison.OrdinalIgnoreCase))
+                ?.Attribute("Executable")?.Value;
+            return executable == null ? null : Path.GetFullPath(Path.Combine(app.InstallPath, executable.Replace('/', '\\')));
+        }
+        catch (Exception e)
+        {
+            Debug.WriteLine($"Package manifest lookup failed for {appId}: {e.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// AppUserModelIDs of the catalog apps whose package install folder holds
     /// <paramref name="executablePath"/>, deepest folder first.
     /// </summary>

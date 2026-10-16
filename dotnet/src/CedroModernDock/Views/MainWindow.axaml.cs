@@ -112,6 +112,7 @@ public partial class MainWindow : Window
             vm.OpenSettingsAction = () => OpenSettings(vm);
             vm.RepositionAction = () => ApplyDockPosition();
             vm.PreviewDismissAction = HidePreview;
+            vm.ChromeAction = ApplyDockChrome;
             vm.Initialize();
         }
 
@@ -157,11 +158,12 @@ public partial class MainWindow : Window
         if (force || !_appServices.PositioningService.IsDynamicPositioning())
         {
             var (x, y) = _appServices.PositioningService.ResolvePosition(Width, Height);
-            // The dock is parented to the desktop window, so a position set on it
-            // is relative to that parent, whose origin is the virtual screen's
-            // top-left (negative with a monitor above or left of the primary one),
-            // while Position reads back in screen coordinates. Without this offset
-            // the saved position drifts by that origin on every start.
+            // The dock is owned by the desktop window, not parented to it, so
+            // the origin is (0,0). A dock parented to the desktop would move
+            // relative to it, whose origin is the virtual screen's top-left
+            // (negative with a monitor above or left of the primary one), while
+            // Position reads back in screen coordinates: the offset keeps the
+            // saved position from drifting by that origin on every start.
             var (originX, originY) = _dockBehavior?.GetParentOrigin() ?? (0, 0);
             Position = new PixelPoint((int)x - originX, (int)y - originY);
         }
@@ -517,7 +519,62 @@ public partial class MainWindow : Window
 
     private const int DwmWindowCornerPreference = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
     private const int DwmCornerRound = 2;             // DWMWCP_ROUND (8 px, Windows 11)
+    private const int DwmCornerDoNotRound = 1;        // DWMWCP_DONOTROUND
+    private const int DwmCornerRoundSmall = 3;        // DWMWCP_ROUNDSMALL (4 px)
     private const double MenuCornerRadius = 8;
+
+    // --- Dock bar chrome (acrylic and rounded shape) ---
+
+    private bool _dockAcrylic;
+
+    /// <summary>
+    /// The popups' acrylic on the dock bar itself, when the setting asks for
+    /// it: the system blurs what is behind the dock and tints it with the
+    /// dock color at the "acrylic intensity" setting, and the bar's own
+    /// background steps aside, as the tint would apply twice. Off, or when
+    /// the system refuses acrylic, the bar paints its flat dock-colored
+    /// surface with the transparency setting. Applied on every appearance
+    /// refresh, so the settings act live.
+    /// </summary>
+    private void ApplyDockChrome()
+    {
+        if (_appServices == null || DataContext is not MainWindowViewModel vm) return;
+        IntPtr hwnd = this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (hwnd == IntPtr.Zero) return;
+
+        var appearance = _appServices.AppearanceService;
+        if (appearance.GetDockAcrylic())
+        {
+            Color tint = DockColor();
+            byte intensity = (byte)Math.Round(appearance.GetMenuAcrylicIntensity() / 100.0 * 255);
+            _dockAcrylic = AcrylicBackdrop.Enable(hwnd, intensity, tint.R, tint.G, tint.B);
+        }
+        else
+        {
+            AcrylicBackdrop.Disable(hwnd);
+            _dockAcrylic = false;
+        }
+        vm.SetDockAcrylicActive(_dockAcrylic);
+        ApplyDockShape();
+    }
+
+    /// <summary>
+    /// The acrylic fills the window's rectangle and ignores window regions,
+    /// so the corners are left to DWM, which rounds them to 8 px at most
+    /// (4 px "small"): with acrylic the corner setting is honored up to that
+    /// limit. Without acrylic the bar draws its own rounded surface over a
+    /// transparent window, and the window stays square.
+    /// </summary>
+    private void ApplyDockShape()
+    {
+        if (DataContext is not MainWindowViewModel vm) return;
+        IntPtr hwnd = this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (hwnd == IntPtr.Zero) return;
+        int corner = !_dockAcrylic || vm.BorderRounding <= 0 ? DwmCornerDoNotRound
+            : vm.BorderRounding < 6 ? DwmCornerRoundSmall
+            : DwmCornerRound;
+        DwmThumbnailInterop.SetWindowAttribute(hwnd, DwmWindowCornerPreference, corner);
+    }
 
     private void ShowContextMenu(Control anchor, List<Control> entries)
     {
@@ -702,7 +759,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Light dismiss for the context menu. The dock is WS_EX_NOACTIVATE and
-    /// parented to the desktop, so it never becomes the active window and
+    /// kept at the bottom of the z-order, so it never becomes the active window and
     /// Avalonia never sees the deactivation that normally closes a menu when
     /// the user clicks another app. Poll instead: any mouse button pressed
     /// outside the menu, Escape, or another app coming to the foreground

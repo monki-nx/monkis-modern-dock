@@ -34,8 +34,11 @@ public static class Win32Constants
     public const uint SWP_NOSIZE = 0x0001;
     public const uint SWP_NOMOVE = 0x0002;
     public const uint SWP_NOACTIVATE = 0x0010;
+    public const uint SWP_NOZORDER = 0x0004;
     public const uint SWP_SHOWWINDOW = 0x0040;
     public static readonly IntPtr HWND_TOPMOST = new(-1);
+    public static readonly IntPtr HWND_BOTTOM = new(1);
+    public const int GWLP_HWNDPARENT = -8;
 
     // SendMessageTimeout flags
     public const uint SMTO_ABORTIFHUNG = 0x0002;
@@ -46,6 +49,7 @@ public static class Win32Constants
 
     // Window messages
     public const int WM_SYSCOMMAND = 0x0112;
+    public const int WM_WINDOWPOSCHANGING = 0x0046;
     public const int WM_SIZE = 0x0005;
     public const int SC_MINIMIZE = 0xF020;
     public const int SC_RESTORE = 0xF120;
@@ -97,6 +101,19 @@ public struct POINT
 {
     public int X;
     public int Y;
+}
+
+/// <summary>Native WINDOWPOS structure, carried by WM_WINDOWPOSCHANGING / WM_WINDOWPOSCHANGED.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct WINDOWPOS
+{
+    public IntPtr hwnd;
+    public IntPtr hwndInsertAfter;
+    public int x;
+    public int y;
+    public int cx;
+    public int cy;
+    public uint flags;
 }
 
 /// <summary>Native LASTINPUTINFO structure: tick count of the last input event in the session.</summary>
@@ -212,6 +229,9 @@ public static class User32
 
     [DllImport("user32.dll")]
     public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetDesktopWindow();
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
