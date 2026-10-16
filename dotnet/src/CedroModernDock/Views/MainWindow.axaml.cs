@@ -552,6 +552,10 @@ public partial class MainWindow : Window
         if (menu.Background is ISolidColorBrush { Color: var tint }
             && ApplyPopupChrome(_contextMenuHwnd, tint))
             menu.Background = Brushes.Transparent;
+        // As for the calendar: a press on an entry must not take the focus
+        // from the user's app (Avalonia otherwise activates the menu or its
+        // owner, the dock).
+        SetNoActivate(_contextMenuHwnd);
 
         _contextMenuForeground = User32.GetForegroundWindow();
         _contextMenuWatch.Start();
@@ -619,15 +623,32 @@ public partial class MainWindow : Window
             Calendar.UseAcrylicBackground();
         // Clicks inside the calendar must not take the focus from the user's
         // app (Avalonia otherwise activates the popup's owner, the dock).
-        if (_calendarHwnd != IntPtr.Zero)
-        {
-            long exStyle = User32.GetWindowLongPtr(_calendarHwnd, Win32Constants.GWL_EXSTYLE).ToInt64();
-            User32.SetWindowLongPtr(_calendarHwnd, Win32Constants.GWL_EXSTYLE,
-                new IntPtr(exStyle | Win32Constants.WS_EX_NOACTIVATE));
-        }
+        SetNoActivate(_calendarHwnd);
 
         _calendarForeground = User32.GetForegroundWindow();
         _calendarWatch.Start();
+    }
+
+    private static void SetNoActivate(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return;
+        long exStyle = User32.GetWindowLongPtr(hwnd, Win32Constants.GWL_EXSTYLE).ToInt64();
+        User32.SetWindowLongPtr(hwnd, Win32Constants.GWL_EXSTYLE,
+            new IntPtr(exStyle | Win32Constants.WS_EX_NOACTIVATE));
+    }
+
+    /// <summary>
+    /// True when a window other than the one that was active when the popup
+    /// opened has come to the foreground. The dock or the popup itself taking
+    /// it is not the user switching apps: a press inside the popup can
+    /// activate it or its owner.
+    /// </summary>
+    private bool AnotherAppTookForeground(IntPtr foregroundAtOpen, IntPtr popupHwnd)
+    {
+        IntPtr foreground = User32.GetForegroundWindow();
+        return foreground != foregroundAtOpen
+            && foreground != popupHwnd
+            && foreground != (this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
     }
 
     private void CloseCalendar()
@@ -654,15 +675,9 @@ public partial class MainWindow : Window
         bool buttonDown = IsKeyDown(Win32Constants.VK_LBUTTON)
             || IsKeyDown(Win32Constants.VK_RBUTTON)
             || IsKeyDown(Win32Constants.VK_MBUTTON);
-        IntPtr foreground = User32.GetForegroundWindow();
-        // The dock or the calendar itself taking the foreground is not the
-        // user switching apps (a press inside the popup can activate its owner).
-        bool otherApp = foreground != _calendarForeground
-            && foreground != _calendarHwnd
-            && foreground != (this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
         if ((buttonDown && !IsPointerOverWindow(_calendarHwnd) && !ClockButton.IsPointerOver)
             || IsKeyDown(Win32Constants.VK_ESCAPE)
-            || otherApp)
+            || AnotherAppTookForeground(_calendarForeground, _calendarHwnd))
         {
             CloseCalendar();
         }
@@ -673,7 +688,11 @@ public partial class MainWindow : Window
     /// parented to the desktop, so it never becomes the active window and
     /// Avalonia never sees the deactivation that normally closes a menu when
     /// the user clicks another app. Poll instead: any mouse button pressed
-    /// outside the menu, Escape, or a foreground change closes it.
+    /// outside the menu, Escape, or another app coming to the foreground
+    /// closes it. A press on an entry used to activate the dock, which this
+    /// took for an app switch: the menu closed between the press and the
+    /// release, and the entry's click was lost (it then took several tries
+    /// to open a jump list entry).
     /// </summary>
     private void OnContextMenuWatchTick(object? sender, EventArgs e)
     {
@@ -688,7 +707,7 @@ public partial class MainWindow : Window
             || IsKeyDown(Win32Constants.VK_MBUTTON);
         if ((buttonDown && !IsPointerOverContextMenu())
             || IsKeyDown(Win32Constants.VK_ESCAPE)
-            || User32.GetForegroundWindow() != _contextMenuForeground)
+            || AnotherAppTookForeground(_contextMenuForeground, _contextMenuHwnd))
         {
             menu.Close();
         }
