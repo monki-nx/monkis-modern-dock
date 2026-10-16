@@ -170,11 +170,7 @@ public partial class MainWindow : Window
         UpdateAppBar();
     }
 
-    private void OnDockSizeChanged(object? sender, SizeChangedEventArgs e)
-    {
-        ApplyDockPosition();
-        ApplyDockShape();
-    }
+    private void OnDockSizeChanged(object? sender, SizeChangedEventArgs e) => ApplyDockPosition();
 
     private void OnItemPointerEntered(object? sender, PointerEventArgs e)
     {
@@ -523,6 +519,8 @@ public partial class MainWindow : Window
 
     private const int DwmWindowCornerPreference = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
     private const int DwmCornerRound = 2;             // DWMWCP_ROUND (8 px, Windows 11)
+    private const int DwmCornerDoNotRound = 1;        // DWMWCP_DONOTROUND
+    private const int DwmCornerRoundSmall = 3;        // DWMWCP_ROUNDSMALL (4 px)
     private const double MenuCornerRadius = 8;
 
     // --- Dock bar chrome (acrylic and rounded shape) ---
@@ -561,18 +559,21 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The acrylic fills the window's rectangle, so the window is cut to the
-    /// bar's rounded shape, following the dock's size and corner setting.
-    /// Without acrylic the bar draws its own rounded surface over a
-    /// transparent window, and the window keeps its full rectangle.
+    /// The acrylic fills the window's rectangle and ignores window regions,
+    /// so the corners are left to DWM, which rounds them to 8 px at most
+    /// (4 px "small"): with acrylic the corner setting is honored up to that
+    /// limit. Without acrylic the bar draws its own rounded surface over a
+    /// transparent window, and the window stays square.
     /// </summary>
     private void ApplyDockShape()
     {
         if (DataContext is not MainWindowViewModel vm) return;
         IntPtr hwnd = this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
-        if (hwnd == IntPtr.Zero || !User32.GetWindowRect(hwnd, out RECT rect)) return;
-        int diameter = _dockAcrylic ? (int)Math.Round(vm.BorderRounding * 2 * RenderScaling) : 0;
-        WindowShape.RoundCorners(hwnd, rect.Right - rect.Left, rect.Bottom - rect.Top, diameter);
+        if (hwnd == IntPtr.Zero) return;
+        int corner = !_dockAcrylic || vm.BorderRounding <= 0 ? DwmCornerDoNotRound
+            : vm.BorderRounding < 6 ? DwmCornerRoundSmall
+            : DwmCornerRound;
+        DwmThumbnailInterop.SetWindowAttribute(hwnd, DwmWindowCornerPreference, corner);
     }
 
     private void ShowContextMenu(Control anchor, List<Control> entries)
