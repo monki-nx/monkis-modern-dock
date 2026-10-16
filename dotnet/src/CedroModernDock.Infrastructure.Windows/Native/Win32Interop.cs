@@ -48,7 +48,9 @@ public static class Win32Constants
     public const int WM_SYSCOMMAND = 0x0112;
     public const int WM_SIZE = 0x0005;
     public const int SC_MINIMIZE = 0xF020;
+    public const int SC_RESTORE = 0xF120;
     public const int SIZE_MINIMIZED = 0;
+    public const int ERROR_ACCESS_DENIED = 5;
     public const int WM_GETICON = 0x007F;
     public const int WM_CLOSE = 0x0010;
     public const int WM_LBUTTONUP = 0x0202;
@@ -95,6 +97,14 @@ public struct POINT
 {
     public int X;
     public int Y;
+}
+
+/// <summary>Native LASTINPUTINFO structure: tick count of the last input event in the session.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct LASTINPUTINFO
+{
+    public uint cbSize;
+    public uint dwTime;
 }
 
 /// <summary>Native TRACKMOUSEEVENT structure for mouse-leave notifications.</summary>
@@ -196,6 +206,12 @@ public static class User32
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool AllowSetForegroundWindow(uint dwProcessId);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -331,6 +347,22 @@ internal static class Kernel32
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr GetModuleHandle(string? lpModuleName);
+}
+
+internal static class Advapi32
+{
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool GetTokenInformation(IntPtr tokenHandle, int tokenInformationClass,
+        IntPtr tokenInformation, int tokenInformationLength, out int returnLength);
+
+    [DllImport("advapi32.dll")]
+    public static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
+
+    [DllImport("advapi32.dll")]
+    public static extern IntPtr GetSidSubAuthority(IntPtr sid, uint subAuthority);
 }
 
 internal static class Comctl32
