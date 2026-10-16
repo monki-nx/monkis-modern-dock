@@ -158,11 +158,12 @@ public partial class MainWindow : Window
         if (force || !_appServices.PositioningService.IsDynamicPositioning())
         {
             var (x, y) = _appServices.PositioningService.ResolvePosition(Width, Height);
-            // The dock is parented to the desktop window, so a position set on it
-            // is relative to that parent, whose origin is the virtual screen's
-            // top-left (negative with a monitor above or left of the primary one),
-            // while Position reads back in screen coordinates. Without this offset
-            // the saved position drifts by that origin on every start.
+            // The dock is owned by the desktop window, not parented to it, so
+            // the origin is (0,0). A dock parented to the desktop would move
+            // relative to it, whose origin is the virtual screen's top-left
+            // (negative with a monitor above or left of the primary one), while
+            // Position reads back in screen coordinates: the offset keeps the
+            // saved position from drifting by that origin on every start.
             var (originX, originY) = _dockBehavior?.GetParentOrigin() ?? (0, 0);
             Position = new PixelPoint((int)x - originX, (int)y - originY);
         }
@@ -748,7 +749,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Light dismiss for the context menu. The dock is WS_EX_NOACTIVATE and
-    /// parented to the desktop, so it never becomes the active window and
+    /// kept at the bottom of the z-order, so it never becomes the active window and
     /// Avalonia never sees the deactivation that normally closes a menu when
     /// the user clicks another app. Poll instead: any mouse button pressed
     /// outside the menu, Escape, or another app coming to the foreground
