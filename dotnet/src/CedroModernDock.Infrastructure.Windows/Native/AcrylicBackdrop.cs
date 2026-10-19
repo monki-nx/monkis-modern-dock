@@ -9,8 +9,8 @@ using Microsoft.Win32;
 /// mechanism behind the shell's acrylic surfaces). Works on popup windows,
 /// whose transparency-level hint Avalonia does not apply, and on any other
 /// top-level window; DWM refuses it to a window that has a parent. The dock
-/// bar does not use it: the accent ignores window regions, so the bar takes
-/// Avalonia's own acrylic instead, which the bar's rounded region does cut.
+/// bar does not use it: DWM rounds the accent to 8 px at most, so the bar
+/// takes Avalonia's own acrylic instead, which clips to any corner radius.
 /// </summary>
 public static class AcrylicBackdrop
 {

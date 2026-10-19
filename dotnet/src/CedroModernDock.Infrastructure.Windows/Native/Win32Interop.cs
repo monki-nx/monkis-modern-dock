@@ -273,6 +273,10 @@ public static class User32
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+    /// <summary>DPI of the system (primary) display; 96 means 100 %.</summary>
+    [DllImport("user32.dll")]
+    public static extern uint GetDpiForSystem();
+
     [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
 

@@ -533,13 +533,13 @@ public partial class MainWindow : Window
     /// Acrylic on the dock bar, when the setting asks for it. Unlike the
     /// popups, the bar uses Avalonia's own acrylic (a host backdrop the
     /// window composes itself) rather than the DWM accent: the accent fills
-    /// the window's rectangle and ignores window regions, while the
-    /// composed blur is cut by the region, so the bar keeps its full corner
-    /// radius (see ApplyDockShape). The bar then paints the dock color at
-    /// the "acrylic intensity" over the blur. Off, when Windows' transparency
-    /// effects are off, or when Avalonia cannot provide the blur, the bar
-    /// paints its flat dock-colored surface with the transparency setting.
-    /// Applied on every appearance refresh, so the settings act live.
+    /// the window's rectangle and DWM rounds it to 8 px at most, while
+    /// Avalonia clips its blur to any radius (see ApplyDockShape). The bar
+    /// then paints the dock color at the "acrylic intensity" over the blur.
+    /// Off, when Windows' transparency effects are off, or when Avalonia
+    /// cannot provide the blur, the bar paints its flat dock-colored surface
+    /// with the transparency setting. Applied on every appearance refresh,
+    /// so the settings act live.
     /// </summary>
     private void ApplyDockChrome()
     {
@@ -557,20 +557,29 @@ public partial class MainWindow : Window
         ApplyDockShape();
     }
 
+    private int _shapeRetries;
+
     /// <summary>
-    /// The acrylic blur fills the window's rectangle, so with acrylic the
-    /// window is cut to the bar's rounded shape, following the dock's size
-    /// and corner setting. Without acrylic the bar draws its own rounded
-    /// surface over a transparent window, and the window keeps its full
-    /// rectangle.
+    /// Rounds the acrylic blur to the bar's corner setting: Avalonia clips
+    /// the blur with an antialiased composition geometry (a window region
+    /// would cut it pixel by pixel, leaving jagged corners) whose radius is
+    /// set here in physical pixels. The geometry appears with the window's
+    /// first render target, on the render thread, so the first attempts may
+    /// find nothing and are retried shortly after; until then the startup
+    /// radius from Program applies. Without acrylic the bar draws its own
+    /// rounded surface and the blur is hidden, so the radius is irrelevant.
     /// </summary>
     private void ApplyDockShape()
     {
-        if (DataContext is not MainWindowViewModel vm) return;
-        IntPtr hwnd = this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
-        if (hwnd == IntPtr.Zero || !User32.GetWindowRect(hwnd, out RECT rect)) return;
-        int diameter = _dockAcrylic ? (int)Math.Round(vm.BorderRounding * 2 * RenderScaling) : 0;
-        WindowShape.RoundCorners(hwnd, rect.Right - rect.Left, rect.Bottom - rect.Top, diameter);
+        if (DataContext is not MainWindowViewModel vm || !_dockAcrylic) return;
+        float radiusPx = (float)(Math.Max(0, vm.BorderRounding) * RenderScaling);
+        if (CompositionBackdropClip.TrySetCornerRadius(this, radiusPx))
+        {
+            _shapeRetries = 0;
+            return;
+        }
+        if (_shapeRetries++ < 10)
+            DispatcherTimer.RunOnce(ApplyDockShape, TimeSpan.FromMilliseconds(250));
     }
 
     private void ShowContextMenu(Control anchor, List<Control> entries)
