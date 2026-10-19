@@ -119,16 +119,18 @@ public partial class MainWindowViewModel : ViewModelBase
     public IBrush DockBackground { get => _dockBackground; set => SetProperty(ref _dockBackground, value); }
     private bool _dockAcrylicActive;
     private IBrush _dockSurface = Brushes.Transparent; // the dock color at the transparency setting
+    private IBrush _dockAcrylicTint = Brushes.Transparent; // the dock color at the acrylic intensity
 
     /// <summary>
-    /// Tells whether the dock window has the acrylic backdrop: the tint then
-    /// comes from the system and the bar's own background steps aside;
-    /// otherwise the bar paints its flat dock-colored surface.
+    /// Tells whether the dock window has the acrylic blur: the bar then
+    /// paints the dock color at the acrylic intensity over it; otherwise
+    /// the bar paints its flat dock-colored surface at the transparency
+    /// setting.
     /// </summary>
     public void SetDockAcrylicActive(bool active)
     {
         _dockAcrylicActive = active;
-        DockBackground = active ? Brushes.Transparent : _dockSurface;
+        DockBackground = active ? _dockAcrylicTint : _dockSurface;
     }
 
     /// <summary>Re-applies the dock window's acrylic and shape after an appearance refresh.</summary>
@@ -320,7 +322,9 @@ public partial class MainWindowViewModel : ViewModelBase
         byte g = parts.Length > 1 && byte.TryParse(parts[1], out var gv) ? gv : (byte)0;
         byte b = parts.Length > 2 && byte.TryParse(parts[2], out var bv) ? bv : (byte)0;
         _dockSurface = new SolidColorBrush(Color.FromArgb(alpha, r, g, b));
-        DockBackground = _dockAcrylicActive ? Brushes.Transparent : _dockSurface;
+        byte tintAlpha = (byte)Math.Round(appearance.GetMenuAcrylicIntensity() / 100.0 * 255);
+        _dockAcrylicTint = new SolidColorBrush(Color.FromArgb(tintAlpha, r, g, b));
+        DockBackground = _dockAcrylicActive ? _dockAcrylicTint : _dockSurface;
     }
 
     private static Color ParseRgbColor(string rgb)

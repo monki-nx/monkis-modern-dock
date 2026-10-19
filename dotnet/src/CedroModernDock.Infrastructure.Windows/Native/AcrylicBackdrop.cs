@@ -8,7 +8,9 @@ using Microsoft.Win32;
 /// tint over the blur (accent policy ACCENT_ENABLE_ACRYLICBLURBEHIND, the
 /// mechanism behind the shell's acrylic surfaces). Works on popup windows,
 /// whose transparency-level hint Avalonia does not apply, and on any other
-/// top-level window; DWM refuses it to a window that has a parent.
+/// top-level window; DWM refuses it to a window that has a parent. The dock
+/// bar does not use it: the accent ignores window regions, so the bar takes
+/// Avalonia's own acrylic instead, which the bar's rounded region does cut.
 /// </summary>
 public static class AcrylicBackdrop
 {
@@ -61,8 +63,12 @@ public static class AcrylicBackdrop
     public static bool Disable(IntPtr hwnd) =>
         hwnd != IntPtr.Zero && Apply(hwnd, new AccentPolicy { AccentState = ACCENT_DISABLED });
 
-    /// <summary>Windows' "Transparency effects" setting (Personalization > Colors).</summary>
-    private static bool SystemTransparencyEnabled()
+    /// <summary>
+    /// Windows' "Transparency effects" setting (Personalization > Colors).
+    /// Off, the shell draws its own surfaces flat and any blur would show
+    /// as a plain rectangle.
+    /// </summary>
+    public static bool SystemTransparencyEnabled()
     {
         try
         {
