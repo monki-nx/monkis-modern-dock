@@ -50,7 +50,9 @@ public class WindowPreviewService
     /// <list type="bullet">
     /// <item>one window: bring it forward, or minimize it when it already is the active window;</item>
     /// <item>several windows: bring the most recent forward, or, when one of
-    /// them is active, cycle to the next one.</item>
+    /// them is active, cycle to the least recent one — the activated window
+    /// moves to the front of the z-order, so taking "the next one" after it
+    /// only ever alternated between the two most recent windows.</item>
     /// </list>
     /// Minimized windows come back to their previous placement (snapped,
     /// maximized or floating). Returns false when there is no window.
@@ -80,7 +82,16 @@ public class WindowPreviewService
             return true;
         }
 
-        var target = activeIndex < 0 ? windows[0] : windows[(activeIndex + 1) % windows.Count];
+        var target = windows[0];
+        if (activeIndex >= 0)
+        {
+            for (int i = windows.Count - 1; i >= 0; i--)
+            {
+                if (i == activeIndex) continue;
+                target = windows[i];
+                break;
+            }
+        }
         _windowQueryGateway.Activate(target);
         return true;
     }

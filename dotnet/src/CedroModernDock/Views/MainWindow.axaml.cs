@@ -112,6 +112,7 @@ public partial class MainWindow : Window
             vm.OpenSettingsAction = () => OpenSettings(vm);
             vm.RepositionAction = () => ApplyDockPosition();
             vm.PreviewDismissAction = HidePreview;
+            vm.ChromeAction = ApplyDockChrome;
             vm.Initialize();
         }
 
@@ -157,18 +158,23 @@ public partial class MainWindow : Window
         if (force || !_appServices.PositioningService.IsDynamicPositioning())
         {
             var (x, y) = _appServices.PositioningService.ResolvePosition(Width, Height);
-            // The dock is parented to the desktop window, so a position set on it
-            // is relative to that parent, whose origin is the virtual screen's
-            // top-left (negative with a monitor above or left of the primary one),
-            // while Position reads back in screen coordinates. Without this offset
-            // the saved position drifts by that origin on every start.
+            // The dock is owned by the desktop window, not parented to it, so
+            // the origin is (0,0). A dock parented to the desktop would move
+            // relative to it, whose origin is the virtual screen's top-left
+            // (negative with a monitor above or left of the primary one), while
+            // Position reads back in screen coordinates: the offset keeps the
+            // saved position from drifting by that origin on every start.
             var (originX, originY) = _dockBehavior?.GetParentOrigin() ?? (0, 0);
             Position = new PixelPoint((int)x - originX, (int)y - originY);
         }
         UpdateAppBar();
     }
 
-    private void OnDockSizeChanged(object? sender, SizeChangedEventArgs e) => ApplyDockPosition();
+    private void OnDockSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        ApplyDockPosition();
+        ApplyDockShape();
+    }
 
     private void OnItemPointerEntered(object? sender, PointerEventArgs e)
     {
@@ -519,6 +525,63 @@ public partial class MainWindow : Window
     private const int DwmCornerRound = 2;             // DWMWCP_ROUND (8 px, Windows 11)
     private const double MenuCornerRadius = 8;
 
+    // --- Dock bar chrome (acrylic and rounded shape) ---
+
+    private bool _dockAcrylic;
+
+    /// <summary>
+    /// Acrylic on the dock bar, when the setting asks for it. Unlike the
+    /// popups, the bar uses Avalonia's own acrylic (a host backdrop the
+    /// window composes itself) rather than the DWM accent: the accent fills
+    /// the window's rectangle and DWM rounds it to 8 px at most, while
+    /// Avalonia clips its blur to any radius (see ApplyDockShape). The bar
+    /// then paints the dock color at the "acrylic intensity" over the blur.
+    /// Off, when Windows' transparency effects are off, or when Avalonia
+    /// cannot provide the blur, the bar paints its flat dock-colored surface
+    /// with the transparency setting. Applied on every appearance refresh,
+    /// so the settings act live.
+    /// </summary>
+    private void ApplyDockChrome()
+    {
+        if (_appServices == null || DataContext is not MainWindowViewModel vm) return;
+        IntPtr hwnd = this.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (hwnd == IntPtr.Zero) return;
+
+        bool wanted = _appServices.AppearanceService.GetDockAcrylic()
+            && AcrylicBackdrop.SystemTransparencyEnabled();
+        TransparencyLevelHint = wanted
+            ? new[] { WindowTransparencyLevel.AcrylicBlur, WindowTransparencyLevel.Transparent }
+            : new[] { WindowTransparencyLevel.Transparent };
+        _dockAcrylic = wanted && ActualTransparencyLevel == WindowTransparencyLevel.AcrylicBlur;
+        vm.SetDockAcrylicActive(_dockAcrylic);
+        ApplyDockShape();
+    }
+
+    private int _shapeRetries;
+
+    /// <summary>
+    /// Rounds the acrylic blur to the bar's corner setting: Avalonia clips
+    /// the blur with an antialiased composition geometry (a window region
+    /// would cut it pixel by pixel, leaving jagged corners) whose radius is
+    /// set here in physical pixels. The geometry appears with the window's
+    /// first render target, on the render thread, so the first attempts may
+    /// find nothing and are retried shortly after; until then the startup
+    /// radius from Program applies. Without acrylic the bar draws its own
+    /// rounded surface and the blur is hidden, so the radius is irrelevant.
+    /// </summary>
+    private void ApplyDockShape()
+    {
+        if (DataContext is not MainWindowViewModel vm || !_dockAcrylic) return;
+        float radiusPx = (float)(Math.Max(0, vm.BorderRounding) * RenderScaling);
+        if (CompositionBackdropClip.TrySetCornerRadius(this, radiusPx))
+        {
+            _shapeRetries = 0;
+            return;
+        }
+        if (_shapeRetries++ < 10)
+            DispatcherTimer.RunOnce(ApplyDockShape, TimeSpan.FromMilliseconds(250));
+    }
+
     private void ShowContextMenu(Control anchor, List<Control> entries)
     {
         // The taskbar drops the preview at once when its menu opens (no fade).
@@ -702,7 +765,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Light dismiss for the context menu. The dock is WS_EX_NOACTIVATE and
-    /// parented to the desktop, so it never becomes the active window and
+    /// kept at the bottom of the z-order, so it never becomes the active window and
     /// Avalonia never sees the deactivation that normally closes a menu when
     /// the user clicks another app. Poll instead: any mouse button pressed
     /// outside the menu, Escape, or another app coming to the foreground

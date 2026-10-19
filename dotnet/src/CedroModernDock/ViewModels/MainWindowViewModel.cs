@@ -117,6 +117,24 @@ public partial class MainWindowViewModel : ViewModelBase
     }
     public CornerRadius DockCornerRadius => new CornerRadius(BorderRounding);
     public IBrush DockBackground { get => _dockBackground; set => SetProperty(ref _dockBackground, value); }
+    private bool _dockAcrylicActive;
+    private IBrush _dockSurface = Brushes.Transparent; // the dock color at the transparency setting
+    private IBrush _dockAcrylicTint = Brushes.Transparent; // the dock color at the acrylic intensity
+
+    /// <summary>
+    /// Tells whether the dock window has the acrylic blur: the bar then
+    /// paints the dock color at the acrylic intensity over it; otherwise
+    /// the bar paints its flat dock-colored surface at the transparency
+    /// setting.
+    /// </summary>
+    public void SetDockAcrylicActive(bool active)
+    {
+        _dockAcrylicActive = active;
+        DockBackground = active ? _dockAcrylicTint : _dockSurface;
+    }
+
+    /// <summary>Re-applies the dock window's acrylic and shape after an appearance refresh.</summary>
+    public Action? ChromeAction { get; set; }
     public string StatusText { get => _statusText; set => SetProperty(ref _statusText, value); }
 
     public ICommand LaunchCommand { get; }
@@ -212,6 +230,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         ApplyAppearance();
         RepositionAction?.Invoke();
+        ChromeAction?.Invoke();
         PreviewDismissAction?.Invoke();
         // The new item view models start without badges.
         OnBadgesChanged();
@@ -302,7 +321,10 @@ public partial class MainWindowViewModel : ViewModelBase
         byte r = parts.Length > 0 && byte.TryParse(parts[0], out var rv) ? rv : (byte)0;
         byte g = parts.Length > 1 && byte.TryParse(parts[1], out var gv) ? gv : (byte)0;
         byte b = parts.Length > 2 && byte.TryParse(parts[2], out var bv) ? bv : (byte)0;
-        DockBackground = new SolidColorBrush(Color.FromArgb(alpha, r, g, b));
+        _dockSurface = new SolidColorBrush(Color.FromArgb(alpha, r, g, b));
+        byte tintAlpha = (byte)Math.Round(appearance.GetMenuAcrylicIntensity() / 100.0 * 255);
+        _dockAcrylicTint = new SolidColorBrush(Color.FromArgb(tintAlpha, r, g, b));
+        DockBackground = _dockAcrylicActive ? _dockAcrylicTint : _dockSurface;
     }
 
     private static Color ParseRgbColor(string rgb)

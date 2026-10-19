@@ -30,8 +30,11 @@ public static class Win32WindowQuery
     /// taskbar, returning each with its owning executable path. Mirrors the
     /// taskbar's own filter: visible, titled, not a tool window, and either an
     /// app window or unowned. Excludes cloaked (Win+D hidden) windows.
+    /// <paramref name="appExecutable"/> maps an AppUserModelID to the exe the
+    /// app runs, for a minimized UWP frame met before its app was ever seen.
     /// </summary>
-    public static List<RunningWindowInfo> GetTaskbarWindows(Func<IntPtr, string?>? windowAppId = null)
+    public static List<RunningWindowInfo> GetTaskbarWindows(Func<IntPtr, string?>? windowAppId = null,
+        Func<string, string?>? appExecutable = null)
     {
         var windows = new List<RunningWindowInfo>();
 
@@ -44,7 +47,7 @@ public static class Win32WindowQuery
 
         User32.EnumWindows((hWnd, _) =>
         {
-            if (TryGetTaskbarWindow(hWnd, out var info))
+            if (TryGetTaskbarWindow(hWnd, windowAppId, appExecutable, out var info))
                 windows.Add(windowAppId == null ? info! : info! with { AppId = windowAppId(hWnd) });
             return true;
         }, IntPtr.Zero);
@@ -52,7 +55,8 @@ public static class Win32WindowQuery
         return windows;
     }
 
-    private static bool TryGetTaskbarWindow(IntPtr hWnd, out RunningWindowInfo? info)
+    private static bool TryGetTaskbarWindow(IntPtr hWnd, Func<IntPtr, string?>? windowAppId,
+        Func<string, string?>? appExecutable, out RunningWindowInfo? info)
     {
         info = null;
 
@@ -104,6 +108,17 @@ public static class Win32WindowQuery
                 // Minimized frames lose their CoreWindow child, so fall back to
                 // the previously resolved app to keep label/icon stable.
                 executablePath = cached;
+            }
+            else if (appExecutable != null && windowAppId?.Invoke(hWnd) is { } appId
+                     && appExecutable(appId) is { } resolved)
+            {
+                // Minimized frame and nothing cached (the dock just started):
+                // the frame still carries the app's AppUserModelID, and the
+                // app catalog says which exe it runs. Without this, every such
+                // frame reads as ApplicationFrameHost.exe and they all merge
+                // into one running-app entry with neither label nor icon.
+                _frameAppExeCache[hWnd] = resolved;
+                executablePath = resolved;
             }
         }
 

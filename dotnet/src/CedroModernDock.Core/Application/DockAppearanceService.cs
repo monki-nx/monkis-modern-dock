@@ -100,6 +100,14 @@ public class DockAppearanceService
         _dockService.SaveChanges();
     }
 
+    public bool GetDockAcrylic() => GetDock().DockAcrylic;
+
+    public void SetDockAcrylic(bool value)
+    {
+        GetDock().DockAcrylic = value;
+        _dockService.SaveChanges();
+    }
+
     public string GetTintColorRGB() => GetDock().TintColorRGB;
 
     public void SetTintColorRGB(string value)

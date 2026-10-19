@@ -187,12 +187,17 @@
                 </ItemsControl>
 
                 <!-- Clock, Windows 11 taskbar style: 24-hour time over the date,
-                     always last. Clicking it toggles the month calendar. -->
+                     always last. Clicking it toggles the month calendar.
+                     Grayscale antialiasing, as in the context menu and the
+                     calendar: with the acrylic bar the window is transparent
+                     behind the digits and ClearType leaves a dark fringe
+                     around them. -->
                 <Button x:Name="ClockButton"
                         VerticalAlignment="Center"
                         HorizontalAlignment="Center"
                         Padding="8,4"
                         Cursor="Hand"
+                        RenderOptions.TextRenderingMode="Antialias"
                         ToolTip.Tip="{Binding ClockToolTip}"
                         Click="OnClockClicked">
                     <Button.Styles>

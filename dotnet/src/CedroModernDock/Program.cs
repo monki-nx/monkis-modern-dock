@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using CedroModernDock.Core.Application;
 using CedroModernDock.Infrastructure.Windows.Adapters;
+using CedroModernDock.Infrastructure.Windows.Native;
 using CedroModernDock.Infrastructure.Windows.Persistence;
 
 namespace CedroModernDock;
@@ -51,8 +52,26 @@ sealed class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            // Avalonia only clips its acrylic blur to rounded corners when
+            // this option is set before the windows are created; the dock
+            // then adjusts the radius live (CompositionBackdropClip).
+            .With(new Win32PlatformOptions { WinUICompositionBackdropCornerRadius = StartupBackdropCornerRadius() })
             .WithInterFont()
             .LogToTrace();
+
+    /// <summary>The dock's corner setting in physical pixels at the system DPI.</summary>
+    private static float StartupBackdropCornerRadius()
+    {
+        try
+        {
+            int rounding = new JsonDockRepository().Load().DockBorderRounding;
+            return (float)(Math.Max(0, rounding) * User32.GetDpiForSystem() / 96.0);
+        }
+        catch
+        {
+            return 0f;
+        }
+    }
 }
 
 internal static class CrashLogger
