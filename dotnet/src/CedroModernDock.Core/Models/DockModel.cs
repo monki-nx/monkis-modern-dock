@@ -118,6 +118,15 @@ public class DockModel
     [JsonPropertyName("reserveScreenSpace")]
     public bool ReserveScreenSpace { get; set; } = true;
 
+    /// <summary>
+    /// Identifier of the screen the dock is anchored to in STATIC mode, or
+    /// null to anchor to the screen it was last placed on. When that screen
+    /// is not connected the dock falls back to the automatic choice and
+    /// returns as soon as the screen is plugged in again.
+    /// </summary>
+    [JsonPropertyName("dockScreenId")]
+    public string? DockScreenId { get; set; }
+
     public void AddItem(DockItem item) => Items.Add(item);
 
     public void RemoveItem(int index) => Items.RemoveAt(index);

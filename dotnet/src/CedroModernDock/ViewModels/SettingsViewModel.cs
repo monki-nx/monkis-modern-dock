@@ -17,6 +17,9 @@ public sealed record AnchorOption(string Label, DockVerticalAnchor Value);
 /// <summary>Alignment combo-box entry: localized label + enum value.</summary>
 public sealed record HorizontalAnchorOption(string Label, DockHorizontalAnchor Value);
 
+/// <summary>Screen combo-box entry: label + screen id (null = automatic).</summary>
+public sealed record ScreenOption(string Label, string? Id);
+
 /// <summary>ViewModel for the Settings window. Port of SettingsController.</summary>
 public partial class SettingsViewModel : ViewModelBase
 {
@@ -46,6 +49,7 @@ public partial class SettingsViewModel : ViewModelBase
     private DockVerticalAnchor _verticalAnchor = DockVerticalAnchor.TOP;
     private DockHorizontalAnchor _horizontalAnchor = DockHorizontalAnchor.MIDDLE;
     private int _topSpacing, _leftSpacing, _rightSpacing, _bottomSpacing;
+    private string? _dockScreenId;
 
     public ObservableCollection<DockItemListEntry> ItemEntries { get; } = new();
     public SupportedLanguage[] Languages => Enum.GetValues<SupportedLanguage>();
@@ -126,6 +130,46 @@ public partial class SettingsViewModel : ViewModelBase
     public bool IsStaticMode { get => _isStaticMode; set => SetProperty(ref _isStaticMode, value); }
     public DockVerticalAnchor VerticalAnchor { get => _verticalAnchor; set => SetProperty(ref _verticalAnchor, value); }
     public DockHorizontalAnchor HorizontalAnchor { get => _horizontalAnchor; set => SetProperty(ref _horizontalAnchor, value); }
+    /// <summary>Preferred screen in STATIC mode; null anchors to the screen the dock was last on.</summary>
+    public string? DockScreenId { get => _dockScreenId; set => SetProperty(ref _dockScreenId, value); }
+
+    /// <summary>
+    /// Automatic first, then every connected screen; a chosen screen that is
+    /// not connected right now is listed too, so opening Settings never drops it.
+    /// </summary>
+    public IReadOnlyList<ScreenOption> ScreenOptions
+    {
+        get
+        {
+            var options = new List<ScreenOption> { new(T("settings.positioning.screen.automatic"), null) };
+            int index = 1;
+            foreach (ScreenInfo screen in _appServices.PositioningService.GetScreens())
+                options.Add(new ScreenOption(ScreenLabel(screen, index++), screen.Id));
+            if (_dockScreenId != null && options.All(o => o.Id != _dockScreenId))
+                options.Add(new ScreenOption(T("settings.positioning.screen.disconnected"), _dockScreenId));
+            return options;
+        }
+    }
+
+    private string ScreenLabel(ScreenInfo screen, int index)
+    {
+        string name = screen.Name.Length > 0 ? screen.Name
+            : screen.IsInternal ? T("settings.positioning.screen.builtin")
+            : T("settings.positioning.screen.unnamed");
+        string label = $"{index}. {name} ({screen.Bounds.Width:0} x {screen.Bounds.Height:0})";
+        return screen.IsPrimary ? $"{label}, {T("settings.positioning.screen.primary")}" : label;
+    }
+
+    /// <summary>Selected screen combo entry.</summary>
+    public ScreenOption? SelectedScreenOption
+    {
+        get => ScreenOptions.FirstOrDefault(o => o.Id == DockScreenId);
+        set
+        {
+            if (value != null && value.Id != DockScreenId)
+                DockScreenId = value.Id;
+        }
+    }
 
     /// <summary>Selected alignment combo entry (localized label + value).</summary>
     public AnchorOption? SelectedVerticalOption
@@ -214,6 +258,8 @@ public partial class SettingsViewModel : ViewModelBase
     public string AlignmentTitle => T("settings.positioning.alignment.title");
     public string VerticalText => T("settings.positioning.alignment.vertical");
     public string HorizontalText => T("settings.positioning.alignment.horizontal");
+    public string ScreenTitle => T("settings.positioning.screen.title");
+    public string ScreenHelper => T("settings.positioning.screen.helper");
     public string ScreenSpacingTitle => T("settings.positioning.spacing.title");
     public string TopSpacingLabel => T("settings.positioning.spacing.top");
     public string LeftSpacingLabel => T("settings.positioning.spacing.left");
@@ -289,6 +335,7 @@ public partial class SettingsViewModel : ViewModelBase
         IsStaticMode = pos.GetPositioningMode() == DockPositioningMode.STATIC;
         VerticalAnchor = pos.GetVerticalAnchor();
         HorizontalAnchor = pos.GetHorizontalAnchor();
+        DockScreenId = pos.GetDockScreenId();
         TopSpacing = pos.GetTopSpacing();
         LeftSpacing = pos.GetLeftSpacing();
         RightSpacing = pos.GetRightSpacing();
@@ -330,6 +377,7 @@ public partial class SettingsViewModel : ViewModelBase
             case nameof(IsStaticMode): OnPositioningModeChanged(); break;
             case nameof(VerticalAnchor): OnVerticalAnchorChanged(); break;
             case nameof(HorizontalAnchor): OnHorizontalAnchorChanged(); break;
+            case nameof(DockScreenId): OnDockScreenChanged(); break;
             case nameof(TopSpacing): OnTopSpacingChanged(); break;
             case nameof(LeftSpacing): OnLeftSpacingChanged(); break;
             case nameof(RightSpacing): OnRightSpacingChanged(); break;
@@ -393,6 +441,13 @@ public partial class SettingsViewModel : ViewModelBase
     }
     public void OnVerticalAnchorChanged() { _appServices.PositioningService.SetVerticalAnchor(VerticalAnchor); _dockRefreshAction(); }
     public void OnHorizontalAnchorChanged() { _appServices.PositioningService.SetHorizontalAnchor(HorizontalAnchor); _dockRefreshAction(); }
+    public void OnDockScreenChanged()
+    {
+        _appServices.PositioningService.SetDockScreenId(DockScreenId);
+        _dockRefreshAction();
+        OnPropertyChanged(nameof(ScreenOptions));
+        OnPropertyChanged(nameof(SelectedScreenOption));
+    }
     public void OnTopSpacingChanged() { _appServices.PositioningService.SetTopSpacing(TopSpacing); _dockRefreshAction(); }
     public void OnLeftSpacingChanged() { _appServices.PositioningService.SetLeftSpacing(LeftSpacing); _dockRefreshAction(); }
     public void OnRightSpacingChanged() { _appServices.PositioningService.SetRightSpacing(RightSpacing); _dockRefreshAction(); }
@@ -545,6 +600,8 @@ public partial class SettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(HorizontalAnchorOptions));
         OnPropertyChanged(nameof(SelectedVerticalOption));
         OnPropertyChanged(nameof(SelectedHorizontalOption));
+        OnPropertyChanged(nameof(ScreenOptions));
+        OnPropertyChanged(nameof(SelectedScreenOption));
     }
 
     public void Shutdown()

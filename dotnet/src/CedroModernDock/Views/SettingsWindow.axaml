@@ -319,7 +319,17 @@
                                     </ComboBox.ItemTemplate>
                                 </ComboBox>
                             </StackPanel>
-                            <TextBlock Text="{Binding ScreenSpacingTitle}" FontWeight="SemiBold" Foreground="#CCCCCC" Margin="0,40,0,0"/>
+                            <TextBlock Text="{Binding ScreenTitle}" FontWeight="SemiBold" Foreground="#CCCCCC" Margin="0,24,0,4"/>
+                            <TextBlock Text="{Binding ScreenHelper}" FontSize="11" Foreground="#888888" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                            <ComboBox ItemsSource="{Binding ScreenOptions}" SelectedItem="{Binding SelectedScreenOption}"
+                                      Background="#2D2D2D" Foreground="White" MinWidth="360" HorizontalAlignment="Left">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ScreenOption">
+                                        <TextBlock Text="{Binding Label}" Foreground="White"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Text="{Binding ScreenSpacingTitle}" FontWeight="SemiBold" Foreground="#CCCCCC" Margin="0,24,0,0"/>
                             <StackPanel Orientation="Vertical" Spacing="6" Margin="0,0,0,80">
                                 <StackPanel Orientation="Horizontal" Spacing="8"><TextBlock Text="{Binding TopSpacingLabel}" Width="50" Foreground="#CCC" VerticalAlignment="Center"/><Slider Minimum="0" Maximum="100" Value="{Binding TopSpacing}" Width="224"/></StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="8"><TextBlock Text="{Binding LeftSpacingLabel}" Width="50" Foreground="#CCC" VerticalAlignment="Center"/><Slider Minimum="0" Maximum="100" Value="{Binding LeftSpacing}" Width="224"/></StackPanel>
