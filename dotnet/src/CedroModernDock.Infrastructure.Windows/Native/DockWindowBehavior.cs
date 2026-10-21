@@ -32,6 +32,15 @@ public sealed class DockWindowBehavior : IDisposable
     /// <summary>Raised with the notification code (wParam) of each appbar notification.</summary>
     public Action<int>? AppBarNotification { get; set; }
 
+    /// <summary>Message Explorer broadcasts when its taskbar is (re)created: every appbar must register again.</summary>
+    private readonly uint _taskbarCreatedMessage = User32.RegisterWindowMessage("TaskbarCreated");
+
+    /// <summary>Raised when Explorer restarted and forgot every appbar.</summary>
+    public Action? ShellRestarted { get; set; }
+
+    /// <summary>Raised after WM_DISPLAYCHANGE: a monitor was added or removed, or the resolution changed.</summary>
+    public Action? DisplayChanged { get; set; }
+
     public DockWindowBehavior(IntPtr hwnd, Action<string>? onStatus = null)
     {
         _hwnd = hwnd;
@@ -152,6 +161,12 @@ public sealed class DockWindowBehavior : IDisposable
             AppBarNotification?.Invoke(wParam.ToInt32());
             return IntPtr.Zero;
         }
+
+        if (uMsg == _taskbarCreatedMessage && _taskbarCreatedMessage != 0)
+            ShellRestarted?.Invoke();
+
+        if (uMsg == Win32Constants.WM_DISPLAYCHANGE)
+            DisplayChanged?.Invoke();
 
         // 0. Bottommost: whatever tries to raise the dock lands it at the
         //    bottom of the z-order instead, behind every normal window (its
