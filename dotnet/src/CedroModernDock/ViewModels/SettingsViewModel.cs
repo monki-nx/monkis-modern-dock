@@ -133,22 +133,28 @@ public partial class SettingsViewModel : ViewModelBase
     /// <summary>Preferred screen in STATIC mode; null anchors to the screen the dock was last on.</summary>
     public string? DockScreenId { get => _dockScreenId; set => SetProperty(ref _dockScreenId, value); }
 
+    private List<ScreenOption> _screenOptions = new();
+
     /// <summary>
     /// Automatic first, then every connected screen; a chosen screen that is
     /// not connected right now is listed too, so opening Settings never drops it.
+    /// Rebuilt by <see cref="RefreshScreenOptions"/>; the combo binds by index
+    /// like the language one, because a regenerated item list resets a
+    /// SelectedItem binding before the choice reaches the model.
     /// </summary>
-    public IReadOnlyList<ScreenOption> ScreenOptions
+    public IReadOnlyList<ScreenOption> ScreenOptions => _screenOptions;
+
+    private void RefreshScreenOptions()
     {
-        get
-        {
-            var options = new List<ScreenOption> { new(T("settings.positioning.screen.automatic"), null) };
-            int index = 1;
-            foreach (ScreenInfo screen in _appServices.PositioningService.GetScreens())
-                options.Add(new ScreenOption(ScreenLabel(screen, index++), screen.Id));
-            if (_dockScreenId != null && options.All(o => o.Id != _dockScreenId))
-                options.Add(new ScreenOption(T("settings.positioning.screen.disconnected"), _dockScreenId));
-            return options;
-        }
+        var options = new List<ScreenOption> { new(T("settings.positioning.screen.automatic"), null) };
+        int index = 1;
+        foreach (ScreenInfo screen in _appServices.PositioningService.GetScreens())
+            options.Add(new ScreenOption(ScreenLabel(screen, index++), screen.Id));
+        if (_dockScreenId != null && options.All(o => o.Id != _dockScreenId))
+            options.Add(new ScreenOption(T("settings.positioning.screen.disconnected"), _dockScreenId));
+        _screenOptions = options;
+        OnPropertyChanged(nameof(ScreenOptions));
+        OnPropertyChanged(nameof(SelectedScreenIndex));
     }
 
     private string ScreenLabel(ScreenInfo screen, int index)
@@ -160,14 +166,16 @@ public partial class SettingsViewModel : ViewModelBase
         return screen.IsPrimary ? $"{label}, {T("settings.positioning.screen.primary")}" : label;
     }
 
-    /// <summary>Selected screen combo entry.</summary>
-    public ScreenOption? SelectedScreenOption
+    /// <summary>Index of the selected screen entry; -1 only while the list is being rebuilt.</summary>
+    public int SelectedScreenIndex
     {
-        get => ScreenOptions.FirstOrDefault(o => o.Id == DockScreenId);
+        get => _screenOptions.FindIndex(o => o.Id == DockScreenId);
         set
         {
-            if (value != null && value.Id != DockScreenId)
-                DockScreenId = value.Id;
+            if (value < 0 || value >= _screenOptions.Count) return;
+            string? id = _screenOptions[value].Id;
+            if (id != DockScreenId)
+                DockScreenId = id;
         }
     }
 
@@ -336,6 +344,7 @@ public partial class SettingsViewModel : ViewModelBase
         VerticalAnchor = pos.GetVerticalAnchor();
         HorizontalAnchor = pos.GetHorizontalAnchor();
         DockScreenId = pos.GetDockScreenId();
+        RefreshScreenOptions();
         TopSpacing = pos.GetTopSpacing();
         LeftSpacing = pos.GetLeftSpacing();
         RightSpacing = pos.GetRightSpacing();
@@ -445,8 +454,7 @@ public partial class SettingsViewModel : ViewModelBase
     {
         _appServices.PositioningService.SetDockScreenId(DockScreenId);
         _dockRefreshAction();
-        OnPropertyChanged(nameof(ScreenOptions));
-        OnPropertyChanged(nameof(SelectedScreenOption));
+        OnPropertyChanged(nameof(SelectedScreenIndex));
     }
     public void OnTopSpacingChanged() { _appServices.PositioningService.SetTopSpacing(TopSpacing); _dockRefreshAction(); }
     public void OnLeftSpacingChanged() { _appServices.PositioningService.SetLeftSpacing(LeftSpacing); _dockRefreshAction(); }
@@ -600,8 +608,7 @@ public partial class SettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(HorizontalAnchorOptions));
         OnPropertyChanged(nameof(SelectedVerticalOption));
         OnPropertyChanged(nameof(SelectedHorizontalOption));
-        OnPropertyChanged(nameof(ScreenOptions));
-        OnPropertyChanged(nameof(SelectedScreenOption));
+        RefreshScreenOptions();
     }
 
     public void Shutdown()

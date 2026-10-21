@@ -321,7 +321,7 @@
                             </StackPanel>
                             <TextBlock Text="{Binding ScreenTitle}" FontWeight="SemiBold" Foreground="#CCCCCC" Margin="0,24,0,4"/>
                             <TextBlock Text="{Binding ScreenHelper}" FontSize="11" Foreground="#888888" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                            <ComboBox ItemsSource="{Binding ScreenOptions}" SelectedItem="{Binding SelectedScreenOption}"
+                            <ComboBox ItemsSource="{Binding ScreenOptions}" SelectedIndex="{Binding SelectedScreenIndex}"
                                       Background="#2D2D2D" Foreground="White" MinWidth="360" HorizontalAlignment="Left">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate x:DataType="vm:ScreenOption">
