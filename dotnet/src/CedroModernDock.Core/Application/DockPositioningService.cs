@@ -85,6 +85,18 @@ public class DockPositioningService
 
     public bool IsDynamicPositioning() => GetPositioningMode() == DockPositioningMode.DYNAMIC;
 
+    /// <summary>Identifier of the preferred screen (STATIC mode), or null for the automatic choice.</summary>
+    public string? GetDockScreenId() => _dockService.GetDock().DockScreenId;
+
+    public void SetDockScreenId(string? screenId)
+    {
+        _dockService.GetDock().DockScreenId = string.IsNullOrWhiteSpace(screenId) ? null : screenId;
+        _dockService.SaveChanges();
+    }
+
+    /// <summary>The screens currently connected (empty without a screen provider).</summary>
+    public IReadOnlyList<ScreenInfo> GetScreens() => _screenBoundsProvider?.GetScreens() ?? Array.Empty<ScreenInfo>();
+
     public bool GetReserveScreenSpace() => _dockService.GetDock().ReserveScreenSpace;
 
     public void SetReserveScreenSpace(bool value)
@@ -107,17 +119,34 @@ public class DockPositioningService
         if (_screenBoundsProvider == null)
             return (0, 0);
 
-        // Anchor to the screen the dock was last placed on (its saved center),
-        // not always the primary one; a point on no screen falls back to the
-        // nearest screen.
-        var bounds = _screenBoundsProvider.GetScreenBoundsAt(
-            dock.DockPositionX + windowWidth / 2, dock.DockPositionY + windowHeight / 2);
+        var bounds = ResolveScreen(dock, windowWidth, windowHeight);
         double x = SnapToPixel(ResolveHorizontalPosition(bounds, windowWidth, dock));
         double y = SnapToPixel(ResolveVerticalPosition(bounds, windowHeight, dock));
         return (x, y);
     }
 
     public static double SnapToPixel(double value) => Math.Round(value, MidpointRounding.AwayFromZero);
+
+    /// <summary>
+    /// The work area the dock anchors to: the preferred screen when one is
+    /// chosen and connected; otherwise the screen the dock was last placed on
+    /// (its saved center), not always the primary one. A point on no screen
+    /// falls back to the nearest screen, which is how the dock lands on the
+    /// primary screen while its preferred screen is unplugged.
+    /// </summary>
+    private ScreenBounds ResolveScreen(DockModel dock, double windowWidth, double windowHeight)
+    {
+        if (dock.DockScreenId is { } wanted)
+        {
+            foreach (ScreenInfo screen in _screenBoundsProvider!.GetScreens())
+            {
+                if (screen.Id == wanted)
+                    return screen.WorkArea;
+            }
+        }
+        return _screenBoundsProvider!.GetScreenBoundsAt(
+            dock.DockPositionX + windowWidth / 2, dock.DockPositionY + windowHeight / 2);
+    }
 
     private static double ResolveHorizontalPosition(
         ScreenBounds bounds, double windowWidth, DockModel dock)

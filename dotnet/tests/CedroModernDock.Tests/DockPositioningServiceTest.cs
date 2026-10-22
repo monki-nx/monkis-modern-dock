@@ -10,6 +10,8 @@ public class DockPositioningServiceTest
     // like a monitor stacked higher than the primary one.
     private static readonly ScreenBounds Primary = new(0, 0, 1920, 1040);
     private static readonly ScreenBounds Second = new(1920, -312, 1920, 1080);
+    private const string PrimaryId = "DISPLAY#BUILTIN";
+    private const string SecondId = "DISPLAY#EXTERNAL";
 
     [Fact]
     public void StaticModeAnchorsToTheScreenTheDockWasLastOn()
@@ -42,6 +44,51 @@ public class DockPositioningServiceTest
 
         Assert.Equal(10, x);
         Assert.Equal(1040 - 66, y);
+    }
+
+    [Fact]
+    public void StaticModeAnchorsToThePreferredScreenWhenItIsConnected()
+    {
+        var (service, positioning) = Create();
+        service.SetDockPosition(500, 900); // last spot: on the primary screen
+        positioning.SetPositioningMode(DockPositioningMode.STATIC);
+        positioning.SetVerticalAnchor(DockVerticalAnchor.DOWN);
+        positioning.SetHorizontalAnchor(DockHorizontalAnchor.MIDDLE);
+        positioning.SetBottomSpacing(0);
+        positioning.SetDockScreenId(SecondId);
+
+        var (x, y) = positioning.ResolvePosition(300, 66);
+
+        Assert.Equal(1920 + (1920 - 300) / 2.0, x);
+        Assert.Equal(-312 + 1080 - 66, y);
+    }
+
+    [Fact]
+    public void StaticModeFallsBackToTheLastScreenWhileThePreferredOneIsUnplugged()
+    {
+        var (service, positioning) = Create();
+        service.SetDockPosition(500, 900);
+        positioning.SetPositioningMode(DockPositioningMode.STATIC);
+        positioning.SetVerticalAnchor(DockVerticalAnchor.DOWN);
+        positioning.SetHorizontalAnchor(DockHorizontalAnchor.LEFT);
+        positioning.SetLeftSpacing(0);
+        positioning.SetBottomSpacing(0);
+        positioning.SetDockScreenId("DISPLAY#UNPLUGGED");
+
+        var (x, y) = positioning.ResolvePosition(300, 66);
+
+        Assert.Equal(0, x);
+        Assert.Equal(1040 - 66, y);
+        Assert.Equal("DISPLAY#UNPLUGGED", positioning.GetDockScreenId()); // the choice survives for when it returns
+    }
+
+    [Fact]
+    public void BlankScreenIdMeansAutomatic()
+    {
+        var (_, positioning) = Create();
+        positioning.SetDockScreenId(SecondId);
+        positioning.SetDockScreenId("  ");
+        Assert.Null(positioning.GetDockScreenId());
     }
 
     [Fact]
@@ -79,6 +126,12 @@ public class DockPositioningServiceTest
 
         public ScreenBounds GetScreenBoundsAt(double x, double y) =>
             x >= Second.MinX && x < Second.MaxX && y >= Second.MinY && y < Second.MaxY ? Second : Primary;
+
+        public IReadOnlyList<ScreenInfo> GetScreens() => new[]
+        {
+            new ScreenInfo(PrimaryId, "", true, true, Primary with { Height = 1080 }, Primary),
+            new ScreenInfo(SecondId, "DELL U2720Q", false, false, Second, Second),
+        };
     }
 
     private sealed class InMemoryDockRepository : IDockRepository

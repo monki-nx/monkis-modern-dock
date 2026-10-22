@@ -55,6 +55,29 @@ public class JsonDockRepositoryTest
     }
 
     [Fact]
+    public void SavesAndLoadsThePreferredScreen()
+    {
+        string configPath = Path.Combine(_tempDir, "config.json");
+        var repository = new JsonDockRepository(configPath);
+
+        var model = new DockModel { DockScreenId = @"\?DISPLAY#DELA0B2#5&2a1b2c3&0&UID4352#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}" };
+        repository.Save(model);
+
+        Assert.Equal(model.DockScreenId, repository.Load().DockScreenId);
+        CleanupTempDir();
+    }
+
+    [Fact]
+    public void AConfigWithoutAPreferredScreenLoadsAsAutomatic()
+    {
+        string configPath = Path.Combine(_tempDir, "config.json");
+        File.WriteAllText(configPath, "{ \"items\": [], \"reserveScreenSpace\": true }");
+
+        Assert.Null(new JsonDockRepository(configPath).Load().DockScreenId);
+        CleanupTempDir();
+    }
+
+    [Fact]
     public void SavesAndLoadsDockPosition()
     {
         string configPath = Path.Combine(_tempDir, "config.json");

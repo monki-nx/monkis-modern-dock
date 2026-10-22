@@ -39,6 +39,9 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _previewHideDebounce = new() { Interval = TimeSpan.FromMilliseconds(80) };
     private readonly DispatcherTimer _previewCloseRefresh = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly DispatcherTimer _positionPersistTimer = new() { Interval = TimeSpan.FromMilliseconds(200) };
+    // A display change arrives as a burst of WM_DISPLAYCHANGE while monitors
+    // settle; the dock re-anchors once the burst is over.
+    private readonly DispatcherTimer _displayChangeSettle = new() { Interval = TimeSpan.FromMilliseconds(500) };
 
     public MainWindow()
     {
@@ -48,6 +51,11 @@ public partial class MainWindow : Window
         {
             _positionPersistTimer.Stop();
             PersistDockPosition();
+        };
+        _displayChangeSettle.Tick += (_, _) =>
+        {
+            _displayChangeSettle.Stop();
+            OnDisplayChanged();
         };
         // The popup hides only when the pointer is neither over the popup nor
         // over a native thumbnail window (thumbnails are separate top-level
@@ -99,11 +107,23 @@ public partial class MainWindow : Window
 
         _dockBehavior = new DockWindowBehavior(handle.Handle, UpdateStatus);
         _dockBehavior.Apply();
-        _appBar = new DockAppBar(handle.Handle, _dockBehavior.AppBarCallbackMessage);
+        _appBar = new DockAppBar(handle.Handle, _dockBehavior.AppBarCallbackMessage, UpdateStatus);
+        // The shell also notifies the appbar that caused the change, so the
+        // handler only re-checks the strip (a forced resend would loop).
         _dockBehavior.AppBarNotification = code =>
         {
             if (code == DockAppBar.ABN_POSCHANGED)
-                UpdateAppBar(force: true);
+                UpdateAppBar();
+        };
+        _dockBehavior.ShellRestarted = () =>
+        {
+            _appBar?.ShellRestarted();
+            UpdateAppBar();
+        };
+        _dockBehavior.DisplayChanged = () =>
+        {
+            _displayChangeSettle.Stop();
+            _displayChangeSettle.Start();
         };
 
         // Initialize the dock ViewModel (loads items, starts indicator watcher).
@@ -174,6 +194,20 @@ public partial class MainWindow : Window
     {
         ApplyDockPosition();
         ApplyDockShape();
+    }
+
+    /// <summary>
+    /// A monitor was plugged in or removed, or the resolution changed. In
+    /// STATIC mode the dock re-anchors to its preferred screen when that one
+    /// just came back, or to the nearest screen when its own went away; the
+    /// reserved strip follows it, resent in full because the shell may have
+    /// dropped it with the old layout.
+    /// </summary>
+    private void OnDisplayChanged()
+    {
+        if (_appServices == null) return;
+        ApplyDockPosition();
+        UpdateAppBar(force: true);
     }
 
     private void OnItemPointerEntered(object? sender, PointerEventArgs e)
@@ -1042,6 +1076,7 @@ public partial class MainWindow : Window
     {
         PositionChanged -= OnDockPositionChanged;
         _positionPersistTimer.Stop();
+        _displayChangeSettle.Stop();
         _contextMenuWatch.Stop();
         _openContextMenu?.Close();
         CloseCalendar();

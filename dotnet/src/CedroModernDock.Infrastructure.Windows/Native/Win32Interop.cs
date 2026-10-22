@@ -51,6 +51,8 @@ public static class Win32Constants
     public const int WM_SYSCOMMAND = 0x0112;
     public const int WM_WINDOWPOSCHANGING = 0x0046;
     public const int WM_SIZE = 0x0005;
+    /// <summary>The display configuration changed: resolution, or a monitor added or removed.</summary>
+    public const int WM_DISPLAYCHANGE = 0x007E;
     public const int SC_MINIMIZE = 0xF020;
     public const int SC_RESTORE = 0xF120;
     public const int SIZE_MINIMIZED = 0;
