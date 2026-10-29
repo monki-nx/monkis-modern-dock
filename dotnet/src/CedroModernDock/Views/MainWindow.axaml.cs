@@ -42,6 +42,11 @@ public partial class MainWindow : Window
     // A display change arrives as a burst of WM_DISPLAYCHANGE while monitors
     // settle; the dock re-anchors once the burst is over.
     private readonly DispatcherTimer _displayChangeSettle = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    // The desktop keeps settling for a few seconds after that burst: the new
+    // monitor's identity may not resolve yet, Windows may move the dock back
+    // where it was on that monitor, and Explorer re-lays out the work areas
+    // (dropping the reserved strip). A full refresh runs once it is all over.
+    private readonly DispatcherTimer _displayChangeRefresh = new() { Interval = TimeSpan.FromSeconds(5) };
 
     public MainWindow()
     {
@@ -56,6 +61,11 @@ public partial class MainWindow : Window
         {
             _displayChangeSettle.Stop();
             OnDisplayChanged();
+        };
+        _displayChangeRefresh.Tick += (_, _) =>
+        {
+            _displayChangeRefresh.Stop();
+            RefreshAfterDisplayChange();
         };
         // The popup hides only when the pointer is neither over the popup nor
         // over a native thumbnail window (thumbnails are separate top-level
@@ -124,6 +134,8 @@ public partial class MainWindow : Window
         {
             _displayChangeSettle.Stop();
             _displayChangeSettle.Start();
+            _displayChangeRefresh.Stop();
+            _displayChangeRefresh.Start();
         };
 
         // Initialize the dock ViewModel (loads items, starts indicator watcher).
@@ -207,6 +219,22 @@ public partial class MainWindow : Window
     {
         if (_appServices == null) return;
         ApplyDockPosition();
+        UpdateAppBar(force: true);
+    }
+
+    /// <summary>
+    /// Some seconds after the last display change, reapplies the whole dock
+    /// configuration, as opening Settings does: items, appearance, position on
+    /// the preferred screen and chrome; then resends the reserved strip, so
+    /// maximized windows stop above the dock on the monitor it ended up on.
+    /// </summary>
+    private void RefreshAfterDisplayChange()
+    {
+        if (_appServices == null) return;
+        if (DataContext is MainWindowViewModel vm)
+            vm.UpdateDockUI();
+        else
+            ApplyDockPosition();
         UpdateAppBar(force: true);
     }
 
@@ -1077,6 +1105,7 @@ public partial class MainWindow : Window
         PositionChanged -= OnDockPositionChanged;
         _positionPersistTimer.Stop();
         _displayChangeSettle.Stop();
+        _displayChangeRefresh.Stop();
         _contextMenuWatch.Stop();
         _openContextMenu?.Close();
         CloseCalendar();
